@@ -22,7 +22,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['server/**/*.js', '*.config.js'],
+    files: ['server/**/*.js', 'scripts/**/*.js', '*.config.js'],
     languageOptions: {
       globals: globals.node,
     },

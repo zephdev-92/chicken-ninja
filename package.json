@@ -8,7 +8,8 @@
     "server": "node server/index.js",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "rtp-sim": "node scripts/rtp-simulation.js"
   },
   "dependencies": {
     "express": "^4.21.2",

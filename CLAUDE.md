@@ -27,12 +27,16 @@ npm run dev
 - Frontend : http://localhost:5173
 - Serveur : http://localhost:3001
 - `npm run lint` avant tout commit
+- `npm run rtp-sim` (ou `-- --deep`) pour valider empiriquement le RTP après toute
+  modification de `src/shared/gameConfig.js` ou de `resolveStep` côté serveur —
+  voir `.claude/skills/rtp-simulation/SKILL.md`
 
 ## Structure
 
 ```
 Chicken-ninja/
 ├── server/index.js          # Express + Socket.IO, une PlayerSession par socket
+├── scripts/rtp-simulation.js # Monte Carlo RTP validator — npm run rtp-sim
 ├── src/
 │   ├── shared/gameConfig.js # DIFFICULTIES + maths pures (multiplicateur, HMAC message, RNG→outcome)
 │   │                         #   importé par le serveur ET le client — ne jamais dupliquer ces valeurs
@@ -46,9 +50,10 @@ Chicken-ninja/
 │   │   ├── useChickenGame.js #   État + wallet localStorage + actions
 │   │   ├── useSound.js       #   Web Audio API (hop / bust / cashout)
 │   │   └── useMediaQuery.js
-│   └── components/           # ← UI React
+│   └── components/           # ← UI React — cadre mobile fixe (voir App.jsx)
+│       ├── Header.jsx, Drawer.jsx (wallet/ProvablyFair/historique, hors flux principal)
 │       ├── GameCanvas.jsx, DifficultySelector.jsx, BetPanel.jsx,
-│       ├── MultiplierLadder.jsx, ProvablyFair.jsx, CashoutFeed.jsx
+│       ├── MultiplierLadder.jsx, ProvablyFair.jsx, CashoutFeed.jsx (ticker "gains récents")
 ├── PROTOCOL.md (à créer si le protocole évolue — voir tableau socket dans README.md)
 ```
 
@@ -75,6 +80,10 @@ Provably fair par case : `HMAC-SHA256(serverSeed, "clientSeed:nonce:step")` → 
 ## État actuel
 
 Prototype fonctionnel : mise, choix de difficulté, avancée case par case, cashout,
-provably fair vérifiable, historique, feed de gains. Pas encore : vrais sprites, sons
-avancés, tests automatisés, RTP validé par simulation Monte Carlo (mêmes gaps que
-CRASH-GAME, voir son `PROTOCOL.md`).
+provably fair vérifiable, historique, feed de gains, cadre mobile compact (viewport
+fixe, pas de scroll de page). RTP validé empiriquement via `npm run rtp-sim`
+(Monte Carlo sur le vrai chemin HMAC, cf. `.claude/skills/rtp-simulation/`).
+
+Pas encore : vrais sprites (placeholders `Graphics` uniquement), sons avancés, tests
+automatisés (aucun fichier de test dans le repo), load testing sur `server/index.js`
+(mêmes gaps que CRASH-GAME, voir son `PROTOCOL.md`).
