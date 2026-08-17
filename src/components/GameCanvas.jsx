@@ -4,7 +4,7 @@ import { PixiRenderer } from '../animation/PixiRenderer';
 const RESIZE_DEBOUNCE_MS = 200;
 const SIZE_CHANGE_THRESHOLD = 6; // ignore sub-pixel/scrollbar-induced jitter
 
-export default function GameCanvas({ status, step, lanes, lastOutcome }) {
+export default function GameCanvas({ status, step, lanes, lastOutcome, difficulty }) {
   const containerRef  = useRef(null);
   const rendererRef   = useRef(null);
   const prevStatusRef = useRef(null);
@@ -12,7 +12,7 @@ export default function GameCanvas({ status, step, lanes, lastOutcome }) {
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    liveRef.current = { status, step, lanes, lastOutcome };
+    liveRef.current = { status, step, lanes, lastOutcome, difficulty };
   });
 
   // Fills whatever space the flex parent gives it — tracks both dimensions,
@@ -50,7 +50,8 @@ export default function GameCanvas({ status, step, lanes, lastOutcome }) {
     renderer.init(container, size.w, size.h)
       .then(() => {
         if (rendererRef.current !== renderer) return;
-        const { status, step, lastOutcome } = liveRef.current;
+        const { status, step, lastOutcome, difficulty } = liveRef.current;
+        renderer.setDifficulty(difficulty);
         renderer.update({ status, step, lastOutcome });
       })
       .catch(err => console.error('[GameCanvas] PixiJS init failed:', err));
@@ -74,6 +75,10 @@ export default function GameCanvas({ status, step, lanes, lastOutcome }) {
     }
     r.update({ status, step, lanes, lastOutcome });
   }, [status, step, lanes, lastOutcome]);
+
+  useEffect(() => {
+    rendererRef.current?.setDifficulty(difficulty);
+  }, [difficulty]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 0 }} />;
 }

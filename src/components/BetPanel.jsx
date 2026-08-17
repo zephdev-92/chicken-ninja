@@ -1,3 +1,28 @@
+import { useState } from 'react';
+import { theme } from '../theme';
+import buttonPlayImg from '../assets/ui/button-play.png';
+import tokenBetImg from '../assets/ui/token-bet.png';
+
+function PressButton({ onClick, disabled, style, children }) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerLeave={() => setPressed(false)}
+      style={{
+        ...style,
+        transition: 'transform 160ms ease-out, background 150ms ease, opacity 150ms ease',
+        transform: pressed && !disabled ? 'scale(0.97)' : 'scale(1)',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function BetPanel({
   bet, setBet, betError, minBet, maxBet, balance,
   status, isIdleLike, step, multiplier, activeBet, actionPending,
@@ -11,12 +36,12 @@ export default function BetPanel({
     <div style={{ display: 'grid', gap: '8px' }}>
       <div
         style={{
-          borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(15,23,38,0.6)', padding: '7px 8px',
-          display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'nowrap',
+          borderRadius: '12px', border: `1px solid ${theme.borderSoft}`,
+          background: theme.surface, padding: '9px 10px',
+          display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap',
         }}
       >
-        <span style={{ color: '#8ab8ff', fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0 }}>Mise</span>
+        <span style={{ color: theme.accent, fontSize: '12px', whiteSpace: 'nowrap', flexShrink: 0 }}>Mise</span>
         <input
           type="number"
           min={minBet}
@@ -26,10 +51,10 @@ export default function BetPanel({
           disabled={!isIdleLike}
           onChange={e => setBet(Number(e.target.value) || 0)}
           style={{
-            width: '48px', minWidth: 0, flexShrink: 1,
+            width: '52px', minWidth: 0, minHeight: '44px', flexShrink: 1, boxSizing: 'border-box',
             padding: '5px 6px', borderRadius: '8px',
-            border: '1px solid #27303f', background: '#0a1220', color: 'white',
-            fontSize: '13px', fontWeight: 600,
+            border: `1px solid ${theme.border}`, background: theme.surfaceAlt, color: theme.textPrimary,
+            fontSize: '14px', fontWeight: 600,
           }}
         />
         {[
@@ -38,68 +63,78 @@ export default function BetPanel({
           { label: '2×',  fn: () => setBet(bet * 2) },
           { label: 'Max', fn: () => setBet(Math.min(maxBet, balance)) },
         ].map(({ label, fn }) => (
-          <button
+          <PressButton
             key={label}
             onClick={fn}
             disabled={!isIdleLike}
             style={{
-              flexShrink: 0,
-              padding: '4px 6px', borderRadius: '7px', border: '1px solid #27303f',
-              background: '#0a1220', color: '#8ab8ff', fontSize: '11px', fontWeight: 600,
+              flexShrink: 0, minWidth: '44px', minHeight: '44px', boxSizing: 'border-box',
+              padding: '4px 6px', borderRadius: '7px', border: `1px solid ${theme.border}`,
+              backgroundColor: theme.surfaceAlt,
+              backgroundImage: `url(${tokenBetImg})`, backgroundSize: '16px 16px',
+              backgroundPosition: 'top 2px right 2px', backgroundRepeat: 'no-repeat',
+              color: theme.accent, fontSize: '12px', fontWeight: 600,
               cursor: isIdleLike ? 'pointer' : 'not-allowed', opacity: isIdleLike ? 1 : 0.5,
             }}
           >
             {label}
-          </button>
+          </PressButton>
         ))}
       </div>
 
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         {isIdleLike ? (
-          <button
+          <PressButton
             onClick={onStart}
             disabled={!canStart}
             style={{
-              flex: 1, padding: '11px 14px', borderRadius: '12px', border: 'none',
-              background: canStart ? '#27c383' : '#1e2a3a',
-              color: canStart ? '#091219' : '#4a6a8a',
-              fontWeight: 700, fontSize: '14px', cursor: canStart ? 'pointer' : 'not-allowed',
+              flex: 1, minHeight: '48px', boxSizing: 'border-box',
+              padding: '13px 14px', borderRadius: '12px', border: 'none',
+              backgroundColor: canStart ? theme.accent : theme.disabledBg,
+              backgroundImage: canStart ? `url(${buttonPlayImg})` : 'none',
+              backgroundSize: 'cover', backgroundPosition: 'center', backgroundBlendMode: 'multiply',
+              color: canStart ? theme.textOnAccent : theme.disabledText,
+              fontWeight: 700, fontSize: '15px', cursor: canStart ? 'pointer' : 'not-allowed',
+              textShadow: canStart ? '0 1px 2px rgba(0,0,0,0.5)' : 'none',
             }}
           >
             {balance < bet ? 'Balance trop juste' : `Jouer — ${bet} €`}
-          </button>
+          </PressButton>
         ) : (
           <>
-            <button
+            <PressButton
               onClick={onStep}
               disabled={!canStep}
               style={{
-                flex: 1, padding: '11px 14px', borderRadius: '12px', border: 'none',
-                background: canStep ? '#4768ff' : '#1e2a3a',
-                color: 'white', fontWeight: 700, fontSize: '14px',
+                flex: 1, minHeight: '48px', boxSizing: 'border-box',
+                padding: '13px 14px', borderRadius: '12px', border: 'none',
+                background: canStep ? theme.info : theme.disabledBg,
+                color: canStep ? theme.textOnAccent : theme.disabledText,
+                fontWeight: 700, fontSize: '15px',
                 cursor: canStep ? 'pointer' : 'not-allowed',
               }}
             >
               Avancer
-            </button>
-            <button
+            </PressButton>
+            <PressButton
               onClick={onCashOut}
               disabled={!canCashOut}
               style={{
-                flex: 1, padding: '11px 14px', borderRadius: '12px', border: 'none',
-                background: canCashOut ? '#ffb020' : '#1e2a3a',
-                color: canCashOut ? '#091219' : '#4a6a8a', fontWeight: 700, fontSize: '14px',
+                flex: 1, minHeight: '48px', boxSizing: 'border-box',
+                padding: '13px 14px', borderRadius: '12px', border: 'none',
+                background: canCashOut ? theme.warning : theme.disabledBg,
+                color: canCashOut ? theme.textPrimary : theme.disabledText, fontWeight: 700, fontSize: '15px',
                 cursor: canCashOut ? 'pointer' : 'not-allowed',
               }}
             >
               Encaisser {step >= 1 ? `— ${(activeBet * multiplier).toFixed(2)} €` : ''}
-            </button>
+            </PressButton>
           </>
         )}
       </div>
 
       {betError && (
-        <div style={{ color: '#ff7864', fontSize: '12px', paddingLeft: '4px' }}>{betError}</div>
+        <div style={{ color: theme.danger, fontSize: '12px', paddingLeft: '4px' }}>{betError}</div>
       )}
     </div>
   );

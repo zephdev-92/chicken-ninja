@@ -1,9 +1,23 @@
-import { Application, Container, Graphics, Text } from 'pixi.js';
-import { DIFFICULTIES } from '../shared/gameConfig.js';
+import { Application, Container, Graphics, Text, Sprite, TilingSprite, Assets } from 'pixi.js';
+import { DIFFICULTIES, buildMultiplierLadder } from '../shared/gameConfig.js';
+import { theme } from '../theme.js';
 
-// Placeholder scene — every visual is drawn with Pixi `Graphics`, no external
-// spritesheet. Swap this file for a TexturePacker-based renderer later without
-// touching GameCanvas.jsx (same contract: init / reset / update / destroy).
+import chickenIdleUrl from '../assets/chicken/chicken-idle.png';
+import chickenRunUrl from '../assets/chicken/chicken-run.png';
+import chickenVictoryUrl from '../assets/chicken/chicken-victory.png';
+import chickenKoUrl from '../assets/chicken/chicken-ko.png';
+import iconShurikenUrl from '../assets/icons/icon-shuriken.png';
+import iconXUrl from '../assets/icons/icon-x.png';
+import roadLaneTileUrl from '../assets/road/road-lane-tile.png';
+import roadStartPostUrl from '../assets/road/road-start-post.png';
+import roadFinishPostUrl from '../assets/road/road-finish-post.png';
+import pathSandTileUrl from '../assets/road/path-sand-tile.png';
+import pathPostUrl from '../assets/road/path-post.png';
+import badgeMultiplierUrl from '../assets/ui/badge-multiplier.png';
+
+// Manga/BD scene — real sprites (src/assets/) replacing the old Graphics-only
+// placeholders. Same public contract (init/reset/update/destroy) as before,
+// GameCanvas.jsx does not need to change.
 
 const TILE_W      = 84;
 const TILE_H      = 58;
@@ -13,14 +27,32 @@ const VIEW_ANCHOR = 0.30;   // fraction of canvas width where the chicken sits o
 const HOP_MS      = 320;
 const HOP_ARC     = 26;
 const SHURIKEN_MS = 220;
+const CHICKEN_H   = 66;     // display height, all poses scaled to match
+const KO_SQUASH_MS = 150;
+const BADGE_SIZE  = 46;     // multiplier disc drawn on each tile, replaces the plain lane number
+const TOP_CLEARANCE = CHICKEN_H + HOP_ARC + 30; // room above the road for the chicken hop + wall decor
+const REFERENCE_H     = 380; // canvas height the road/chicken/tiles were originally sized for
+const MAX_SCENE_SCALE = 1.5; // cap so the scene doesn't blow up into an unreadable zoom on very tall canvases
+
+// The sand/post source art (path-post.png, path-sand-tile.png) is cropped from the same
+// generated panel, split so they can scale independently: the sand ground can grow to fill
+// any canvas height without the post growing along with it and outscaling the chicken.
+const SAND_TILE_SCALE   = 0.6;              // dot density on screen — independent of canvas height
+const POST_DISPLAY_H    = CHICKEN_H * 1.55; // training post is taller than the chicken, not huge
+const POST_SPACING_LANES = 1;               // one post per lane, aligned under every badge
 
 const DEFAULT_LANES = Math.max(...Object.values(DIFFICULTIES).map(d => d.lanes));
 
-const TILE_COLORS = {
-  pending: 0x3a2a20,
-  cleared: 0x1f4d2f,
-  current: 0x6b4a12,
-  danger:  0x6b1414,
+const num = hex => parseInt(hex.replace('#', ''), 16);
+
+// Each pending/current/cleared tile shows its multiplier on a disc (badge-multiplier.png);
+// danger replaces the disc with the X icon — you don't get that multiplier, showing it
+// would read as a reward instead of the bust it is.
+const TILE_VISUALS = {
+  pending: { wash: null,          alpha: 0,    badge: true,  icon: null },
+  current: { wash: theme.warning, alpha: 0.28, badge: true,  icon: null },
+  cleared: { wash: theme.success, alpha: 0.18, badge: true,  icon: null },
+  danger:  { wash: theme.danger,  alpha: 0.35, badge: false, icon: 'iconX' },
 };
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -34,8 +66,8 @@ function lerpColor(a, b, t) {
   return (r << 16) | (g << 8) | bl;
 }
 
-const BG_BASE  = 0x140a0c;
-const BG_FLASH = 0x7a1414;
+const BG_BASE  = num(theme.bg);
+const BG_FLASH = num(theme.danger);
 
 export class PixiRenderer {
   constructor() {
@@ -47,6 +79,8 @@ export class PixiRenderer {
     this._w = 0;
     this._h = 0;
 
+    this._textures = null;
+
     this._trackY = 0;
     this._camMin = 0;
     this._camMax = 0;
@@ -55,15 +89,17 @@ export class PixiRenderer {
     this._tiles       = [];
     this._appliedStep   = 0;
     this._appliedStatus = 'idle';
+    this._ladder         = buildMultiplierLadder(DIFFICULTIES.easy.deathChance, DEFAULT_LANES);
+    this._pendingDifficulty = null;
 
     this._chickenX = 0;
     this._chickenY = 0;
     this._hop = null;      // { fromX, toX, baseY, t }
     this._topple = false;
+    this._koSquashT = null;
 
     this._shuriken = null; // { g, fromX, fromY, toX, toY, t }
-    this._flash = 0;       // red bust flash alpha
-    this._tailPhase = 0;
+    this._flash = 0;       // bust screen-flash alpha
     this._bounceT = null;  // cashout victory-bounce progress
 
     this._onTick = this._onTick.bind(this);
@@ -72,19 +108,52 @@ export class PixiRenderer {
   async init(containerEl, width, height) {
     this._w = width;
     this._h = height;
-    this._trackY = height * 0.66;
-    this._camMin = width - (DEFAULT_LANES + 1) * TILE_STEP - width * 0.1;
+    // Whole scene (road/chicken/tiles) scales up uniformly when the canvas is taller than
+    // the reference design height, so it fills the flex space App.jsx gives it instead of
+    // sitting as a fixed-size band centered in a sea of cream. Uniform (not just vertical)
+    // so proportions/art stay undistorted — lanes just get a bit larger, not squashed.
+    const sceneScale = clamp(height / REFERENCE_H, 1, MAX_SCENE_SCALE);
+    this._sceneScale = sceneScale;
+    // Track sits right below its safety clearance (not centered) — centering left the
+    // road floating mid-canvas with an unavoidable dead gap above it (chicken height is
+    // a small fraction of a tall flex canvas no matter how much the scene is scaled up).
+    // Pinning it near the top instead hands the rest of the height to the ground plane
+    // below, which is what actually reads as "the game fills the canvas".
+    this._trackY = clamp(TOP_CLEARANCE * sceneScale, TOP_CLEARANCE, height - 30);
+    // +2.5 tile-steps of slack (not +1) so the finish torii past the last lane
+    // is fully revealed once the chicken reaches lane 24, not clipped off-screen.
+    this._camMin = width - (DEFAULT_LANES + 2.5) * TILE_STEP * sceneScale - width * 0.1;
     this._camMax = width * VIEW_ANCHOR;
 
     const app = new Application();
     this._app = app;
     await app.init({
       width, height,
-      background:  0x140a0c,
+      background:  BG_BASE,
       antialias:   true,
       resolution:  window.devicePixelRatio || 1,
       autoDensity: true,
     });
+    if (this._destroyed) { app.destroy(true); return; }
+
+    const urls = {
+      chickenIdle:     chickenIdleUrl,
+      chickenRun:      chickenRunUrl,
+      chickenVictory:  chickenVictoryUrl,
+      chickenKo:       chickenKoUrl,
+      iconShuriken:    iconShurikenUrl,
+      iconX:           iconXUrl,
+      roadLaneTile:    roadLaneTileUrl,
+      roadStartPost:   roadStartPostUrl,
+      roadFinishPost:  roadFinishPostUrl,
+      pathSandTile:    pathSandTileUrl,
+      pathPost:        pathPostUrl,
+      badgeMultiplier: badgeMultiplierUrl,
+    };
+    const entries = await Promise.all(
+      Object.entries(urls).map(async ([key, url]) => [key, await Assets.load(url)]),
+    );
+    this._textures = Object.fromEntries(entries);
     if (this._destroyed) { app.destroy(true); return; }
 
     const canvas = app.canvas;
@@ -97,9 +166,10 @@ export class PixiRenderer {
     app.ticker.add(this._onTick);
     this._loaded = true;
 
-    // Apply any reset()/update() calls that arrived before the scene existed.
+    // Apply any reset()/update()/setDifficulty() calls that arrived before the scene existed.
     if (this._pendingReset) this.reset();
     if (this._pendingUpdate) this.update(this._pendingUpdate);
+    if (this._pendingDifficulty) this.setDifficulty(this._pendingDifficulty);
   }
 
   // ── Scene ────────────────────────────────────────────────────────────────
@@ -111,27 +181,58 @@ export class PixiRenderer {
 
     const track = new Container();
     track.y = this._trackY;
+    track.scale.set(this._sceneScale);
     this._track = track;
     stage.addChild(track);
 
-    // Start pad (tile index 0)
-    const pad = this._makeTile(TILE_W * 1.1, TILE_H);
-    pad.x = 0;
-    track.addChild(pad);
+    // Training posts recur every ~2 lanes as individual sprites, not baked into a tiled
+    // texture — sized off the chicken (POST_DISPLAY_H) so they stay proportionate no matter
+    // how tall the ground plane behind them grows (see _buildBackground's sand TilingSprite).
+    // X-aligned to the same TILE_STEP grid as the tile badges (one lane center per post,
+    // every POST_SPACING_LANES lanes) instead of staggered between them.
+    const postTex = this._textures.pathPost;
+    const postStartX = TILE_STEP;
+    const postEndX = (DEFAULT_LANES + 3) * TILE_STEP;
+    const postLocalY = (h - this._trackY) * 0.55 / this._sceneScale;
+    for (let x = postStartX; x < postEndX; x += TILE_STEP * POST_SPACING_LANES) {
+      const post = new Sprite(postTex);
+      post.anchor.set(0.5, 0.86);
+      post.scale.set(POST_DISPLAY_H / postTex.height);
+      post.x = x;
+      post.y = postLocalY;
+      track.addChild(post);
+    }
+
+    // Start-gate post near the start pad — sized off the chicken, not the container height,
+    // now that the canvas is a compact band rather than a tall flex area. Kept closer to
+    // lane 1 than a pure "1.15 tile-steps back" would be — at the scene's max zoom the
+    // camera's initial resting position (camMax) doesn't leave enough room further back,
+    // and the post was falling off the left edge of the canvas at idle.
+    const startTex = this._textures.roadStartPost;
+    const startPost = new Sprite(startTex);
+    startPost.anchor.set(0.5, 0.86);
+    startPost.scale.set((CHICKEN_H * 1.9) / startTex.height);
+    startPost.x = -TILE_STEP * 0.5;
+    startPost.y = 6;
+    track.addChild(startPost);
 
     for (let i = 1; i <= DEFAULT_LANES; i++) {
-      const tile = this._makeTile(TILE_W, TILE_H);
+      const tile = this._makeTileWash(TILE_W, TILE_H);
       tile.x = i * TILE_STEP;
       track.addChild(tile);
-      const label = new Text({
-        text: String(i),
-        style: { fontFamily: 'Arial, sans-serif', fontSize: 12, fill: 0x8a6a4a },
-      });
-      label.anchor.set(0.5);
-      label.y = TILE_H / 2 + 12;
-      tile.addChild(label);
-      this._tiles.push({ container: tile, state: 'pending', label });
+      this._tiles.push({ container: tile, state: 'pending' });
     }
+    this._setLadder(this._ladder);
+
+    // Finish-gate post — marks the end of the road (lane 24) the same way the start post
+    // marks the beginning, so the route reads as a defined path rather than an infinite loop.
+    const finishTex = this._textures.roadFinishPost;
+    const finishPost = new Sprite(finishTex);
+    finishPost.anchor.set(0.5, 0.86);
+    finishPost.scale.set((CHICKEN_H * 1.9) / finishTex.height);
+    finishPost.x = DEFAULT_LANES * TILE_STEP + TILE_STEP * 1.15;
+    finishPost.y = 6;
+    track.addChild(finishPost);
 
     this._chicken = this._buildChicken();
     track.addChild(this._chicken);
@@ -145,120 +246,120 @@ export class PixiRenderer {
   }
 
   _buildBackground(stage, w, h) {
-    const bg = new Graphics();
-    const bands = [0x3b1116, 0x2a0c10, 0x1a080b, 0x100608, 0x0a0507];
-    const bandH = h / bands.length;
-    bands.forEach((color, i) => {
-      bg.rect(0, i * bandH, w, bandH + 1).fill(color);
-    });
-    stage.addChild(bg);
-
-    // Moon
-    const moon = new Graphics();
-    moon.circle(w * 0.82, h * 0.18, 34).fill({ color: 0xf0e6c8, alpha: 0.9 });
-    moon.circle(w * 0.82, h * 0.18, 48).fill({ color: 0xf0e6c8, alpha: 0.12 });
-    stage.addChild(moon);
-
-    // Torii silhouette
-    const torii = new Graphics();
-    const tx = w * 0.15, ty = h * 0.62;
-    torii.rect(tx - 46, ty - 90, 10, 95).fill({ color: 0x1a0a0a, alpha: 0.6 });
-    torii.rect(tx + 36, ty - 90, 10, 95).fill({ color: 0x1a0a0a, alpha: 0.6 });
-    torii.rect(tx - 56, ty - 96, 112, 12).fill({ color: 0x1a0a0a, alpha: 0.6 });
-    torii.rect(tx - 50, ty - 78, 100, 8).fill({ color: 0x1a0a0a, alpha: 0.6 });
-    stage.addChild(torii);
-
-    // Ground strip under the track
-    const ground = new Graphics();
-    ground.rect(0, this._trackY + TILE_H / 2 + 4, w, h - (this._trackY + TILE_H / 2 + 4))
-      .fill({ color: 0x090405, alpha: 0.6 });
+    // Sand ground covers the full canvas (not just a strip below the track) so posts always
+    // stand on sand instead of straddling a seam between a cream sky and a tinted ground band.
+    const ground = new TilingSprite({ texture: this._textures.pathSandTile, width: w, height: h });
+    ground.tileScale.set(SAND_TILE_SCALE);
     stage.addChild(ground);
   }
 
-  _makeTile(w, h) {
+  _makeTileWash(w, h) {
     const c = new Container();
-    const g = new Graphics();
-    c.addChild(g);
-    c._draw = (color) => {
-      g.clear();
-      g.roundRect(-w / 2, -h / 2, w, h, 10).fill(color);
-      g.roundRect(-w / 2, -h / 2, w, h, 10).stroke({ width: 2, color: 0x1a120c, alpha: 0.8 });
+    const wash = new Graphics();
+    c.addChild(wash);
+
+    const badge = new Sprite(this._textures.badgeMultiplier);
+    badge.anchor.set(0.5);
+    badge.scale.set(BADGE_SIZE / badge.texture.width);
+    c.addChild(badge);
+
+    const multText = new Text({
+      text: '',
+      style: { fontFamily: theme.fontBody, fontSize: 11, fontWeight: '700', fill: num(theme.textPrimary) },
+    });
+    multText.anchor.set(0.5);
+    c.addChild(multText);
+
+    let icon = null;
+    c._draw = (state) => {
+      const v = TILE_VISUALS[state] ?? TILE_VISUALS.pending;
+      wash.clear();
+      if (v.wash) {
+        wash.roundRect(-w / 2, -h / 2, w, h, 8).fill({ color: num(v.wash), alpha: v.alpha });
+      }
+      badge.visible = v.badge;
+      multText.visible = v.badge;
+      if (icon) { c.removeChild(icon); icon.destroy(); icon = null; }
+      if (v.icon && this._textures) {
+        icon = new Sprite(this._textures[v.icon]);
+        icon.anchor.set(0.5);
+        icon.scale.set(24 / icon.texture.width);
+        c.addChild(icon);
+      }
     };
-    c._draw(TILE_COLORS.pending);
+    c._draw('pending');
+    c._multText = multText;
     return c;
+  }
+
+  // Recomputes and redraws the multiplier disc on every tile for the given difficulty —
+  // called on init, and whenever the player changes difficulty before starting a round.
+  _setLadder(ladder) {
+    this._ladder = ladder;
+    this._tiles.forEach((t, i) => {
+      const mult = ladder[i];
+      if (mult != null) t.container._multText.text = `${mult.toFixed(2)}x`;
+    });
+  }
+
+  setDifficulty(key) {
+    if (!this._loaded) { this._pendingDifficulty = key; return; }
+    const d = DIFFICULTIES[key] ?? DIFFICULTIES.easy;
+    this._setLadder(buildMultiplierLadder(d.deathChance, DEFAULT_LANES));
   }
 
   _buildChicken() {
     const c = new Container();
 
     const shadow = new Graphics();
-    shadow.ellipse(0, 30, 22, 7).fill({ color: 0x000000, alpha: 0.35 });
+    shadow.ellipse(0, 6, 20, 6).fill({ color: 0x1a0e0a, alpha: 0.25 });
     c.addChild(shadow);
 
-    const wing = new Graphics();
-    wing.ellipse(9, 8, 9, 13).fill(0xe4d0a0);
-    c.addChild(wing);
+    const poseTextures = {
+      idle:    this._textures.chickenIdle,
+      run:     this._textures.chickenRun,
+      victory: this._textures.chickenVictory,
+      ko:      this._textures.chickenKo,
+    };
+    const poses = {};
+    for (const [key, tex] of Object.entries(poseTextures)) {
+      const sprite = new Sprite(tex);
+      sprite.anchor.set(0.5, 1);
+      const baseScale = CHICKEN_H / tex.height;
+      sprite.scale.set(baseScale);
+      sprite.y = 6; // sits a bit above the ground-contact shadow, not flush with it
+      sprite.visible = key === 'idle';
+      sprite._baseScale = baseScale;
+      c.addChild(sprite);
+      poses[key] = sprite;
+    }
 
-    const body = new Graphics();
-    body.ellipse(0, 6, 19, 21).fill(0xf5e6c8);
-    body.ellipse(0, 6, 19, 21).stroke({ width: 2, color: 0xd8c49a });
-    c.addChild(body);
-
-    const legL = new Graphics();
-    legL.rect(-9, 24, 4, 10).fill(0xf39c12);
-    c.addChild(legL);
-    const legR = new Graphics();
-    legR.rect(5, 24, 4, 10).fill(0xf39c12);
-    c.addChild(legR);
-
-    const head = new Graphics();
-    head.circle(0, -18, 13).fill(0xf5e6c8);
-    head.circle(0, -18, 13).stroke({ width: 2, color: 0xd8c49a });
-    c.addChild(head);
-
-    const beak = new Graphics();
-    beak.poly([10, -16, 21, -18, 10, -12]).fill(0xf39c12);
-    c.addChild(beak);
-
-    const comb = new Graphics();
-    comb.poly([-6, -30, -2, -38, 2, -30, 6, -37, 9, -29]).fill(0xc0392b);
-    c.addChild(comb);
-
-    const eyeL = new Graphics();
-    eyeL.circle(-5, -19, 2).fill(0x1a0e0a);
-    c.addChild(eyeL);
-    const eyeR = new Graphics();
-    eyeR.circle(5, -19, 2).fill(0x1a0e0a);
-    c.addChild(eyeR);
-
-    const headband = new Graphics();
-    headband.rect(-14, -25, 28, 6).fill(0xa8281f);
-    c.addChild(headband);
-
-    const tailL = new Graphics();
-    tailL.poly([-14, -22, -30, -18, -14, -16]).fill(0xa8281f);
-    c.addChild(tailL);
-    const tailR = new Graphics();
-    tailR.poly([-14, -19, -32, -12, -14, -22]).fill(0x8f2119);
-    c.addChild(tailR);
-
-    c._tails = [tailL, tailR];
+    c._poses = poses;
+    c._pose = 'idle';
     return c;
   }
 
-  _makeShuriken() {
-    const g = new Graphics();
-    g.star(0, 0, 4, 15, 7).fill(0xc9d6df);
-    g.star(0, 0, 4, 15, 7).stroke({ width: 2, color: 0x333d42 });
-    g.circle(0, 0, 3).fill(0x333d42);
-    return g;
+  _setChickenPose(pose) {
+    if (this._chicken._pose === pose) return;
+    this._chicken._pose = pose;
+    for (const [key, sprite] of Object.entries(this._chicken._poses)) {
+      sprite.visible = key === pose;
+    }
+  }
+
+  _updateChickenPose() {
+    let pose = 'idle';
+    if (this._topple) pose = 'ko';
+    else if (this._bounceT !== null) pose = 'victory';
+    else if (this._hop) pose = 'run';
+    this._setChickenPose(pose);
   }
 
   _setTileState(index, state) {
     const t = this._tiles[index - 1];
     if (!t) return;
     t.state = state;
-    t.container._draw(TILE_COLORS[state] ?? TILE_COLORS.pending);
+    t.container._draw(state);
   }
 
   // ── Public contract ─────────────────────────────────────────────────────
@@ -270,6 +371,7 @@ export class PixiRenderer {
     this._tiles.forEach((t, i) => this._setTileState(i + 1, 'pending'));
     this._hop        = null;
     this._topple      = false;
+    this._koSquashT    = null;
     this._shuriken     = null;
     this._flash        = 0;
     this._bounceT       = null;
@@ -280,8 +382,10 @@ export class PixiRenderer {
     if (this._chicken) {
       this._chicken.x = 0;
       this._chicken.y = 0;
-      this._chicken.rotation = 0;
-      this._chicken.scale.set(1);
+      const ko = this._chicken._poses.ko;
+      ko.scale.set(ko._baseScale);
+      ko.y = 6;
+      this._setChickenPose('idle');
     }
   }
 
@@ -332,10 +436,12 @@ export class PixiRenderer {
   }
 
   _throwShuriken(targetTileX) {
-    const g = this._makeShuriken();
-    this._track.addChild(g);
+    const s = new Sprite(this._textures.iconShuriken);
+    s.anchor.set(0.5);
+    s.scale.set(28 / s.texture.width);
+    this._track.addChild(s);
     this._shuriken = {
-      g, t: 0,
+      g: s, t: 0,
       fromX: targetTileX, fromY: -160,
       toX: targetTileX,   toY: 0,
     };
@@ -360,7 +466,7 @@ export class PixiRenderer {
         this._chickenX = this._hop.toX;
         this._chickenY = 0;
         this._hop = null;
-        if (this._topple === 'pending') this._topple = true;
+        if (this._topple === 'pending') { this._topple = true; this._koSquashT = 0; }
       }
     }
 
@@ -385,10 +491,15 @@ export class PixiRenderer {
       this._app.renderer.background.color = lerpColor(BG_BASE, BG_FLASH, this._flash);
     }
 
-    if (this._topple === true) {
-      this._chicken.rotation += (1.35 - this._chicken.rotation) * Math.min(1, dt * 0.14);
-    } else {
-      this._chicken.rotation += (0 - this._chicken.rotation) * Math.min(1, dt * 0.2);
+    // One-shot KO squash (replaces the old continuous topple rotation — the KO
+    // artwork is already drawn "fallen", stacking a procedural rotation on top
+    // of it would double-tilt).
+    if (this._koSquashT !== null && this._koSquashT < 1) {
+      this._koSquashT = Math.min(1, this._koSquashT + dt * (1000 / 60) / KO_SQUASH_MS);
+      const ease = Math.sin(this._koSquashT * Math.PI / 2);
+      const ko = this._chicken._poses.ko;
+      ko.scale.y = ko._baseScale * (1 - 0.15 * ease);
+      ko.y = 6 + 6 * ease;
     }
 
     if (this._bounceT !== null) {
@@ -403,17 +514,11 @@ export class PixiRenderer {
 
     this._chicken.x = this._chickenX;
     this._chicken.y = this._chickenY;
+    this._updateChickenPose();
 
-    // Headband tail sway
-    this._tailPhase += dt * 0.08;
-    if (this._chicken._tails) {
-      this._chicken._tails.forEach((tail, i) => {
-        tail.rotation = Math.sin(this._tailPhase + i) * 0.15;
-      });
-    }
-
-    // Camera follow
-    const camTarget = clamp(this._w * VIEW_ANCHOR - this._chickenX, this._camMin, this._camMax);
+    // Camera follow — chickenX is in the track's local (unscaled) space, so it needs the
+    // scene scale applied to match the screen-space camMin/camMax/track.x it's compared against.
+    const camTarget = clamp(this._w * VIEW_ANCHOR - this._chickenX * this._sceneScale, this._camMin, this._camMax);
     this._camX += (camTarget - this._camX) * Math.min(1, dt * 0.1);
     this._track.x = this._camX;
   }

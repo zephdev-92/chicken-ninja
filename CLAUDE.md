@@ -1,8 +1,8 @@
 # Chicken Ninja
 
 Jeu casino type "Chicken Road", thème ninja : un poulet avance case par case sur une route
-de tatamis, évite des étoiles ninja lancées, encaisse son gain à tout moment. Provably fair
-(HMAC-SHA256), calculé case par case côté serveur.
+bitumée (ambiance manga/BD halftone, jour), évite des étoiles ninja lancées, encaisse son
+gain à tout moment. Provably fair (HMAC-SHA256), calculé case par case côté serveur.
 
 Base architecturale reprise de `/media/zephdev/Jeux/CRASH-GAME` (couches core/hooks/components
 découplées), adaptée à une mécanique par étapes discrètes plutôt qu'un multiplicateur continu.
@@ -12,7 +12,7 @@ découplées), adaptée à une mécanique par étapes discrètes plutôt qu'un m
 | Couche | Techno |
 |--------|--------|
 | Frontend | React 19, Vite 8 |
-| Rendu graphique | PixiJS v8 — **placeholders `Graphics`**, pas de spritesheet pour l'instant |
+| Rendu graphique | PixiJS v8 — sprites réels (`src/assets/`), style manga/BD halftone |
 | Backend | Node.js, Express, Socket.IO |
 | Temps réel | Socket.IO, **session privée par joueur** (pas de round partagé, contrairement à CRASH-GAME) |
 | Fairness | HMAC-SHA256 (crypto Node.js + Web Crypto API), calculé à la demande, case par case |
@@ -40,12 +40,15 @@ Chicken-ninja/
 ├── src/
 │   ├── shared/gameConfig.js # DIFFICULTIES + maths pures (multiplicateur, HMAC message, RNG→outcome)
 │   │                         #   importé par le serveur ET le client — ne jamais dupliquer ces valeurs
+│   ├── theme.js              # Tokens de couleur/police UI — frontend only, jamais importé côté serveur
+│   │                         #   ni fusionné avec gameConfig.js
+│   ├── assets/                # Sprites PNG découpés (chicken/, icons/, ui/, road/) — voir Conventions
 │   ├── core/                # ← NE PAS TOUCHER pour changer de frontend (framework-agnostique)
 │   │   ├── gameEvents.js    #   Bus d'événements (EventTarget)
 │   │   ├── socketClient.js  #   socket.io → gameEvents
 │   │   ├── chickenStore.js  #   État pur JS
 │   │   └── gameActions.js   #   Actions joueur (wraps socket.emit)
-│   ├── animation/PixiRenderer.js  # Scène "route de tatamis", Graphics uniquement
+│   ├── animation/PixiRenderer.js  # Scène route bitumée manga/BD, Sprite + TilingSprite (src/assets/)
 │   ├── hooks/                # ← Spécifique React
 │   │   ├── useChickenGame.js #   État + wallet localStorage + actions
 │   │   ├── useSound.js       #   Web Audio API (hop / bust / cashout)
@@ -74,8 +77,10 @@ Provably fair par case : `HMAC-SHA256(serverSeed, "clientSeed:nonce:step")` → 
   jamais dupliquée côté serveur ou composant.
 - Le socket est privé par session (`socket.emit`), sauf `cashout:feed` qui est diffusé à
   tous (`io.emit`) — feed cosmétique de gains récents, pas de round partagé.
-- Assets actuels = `Graphics` Pixi (pas de fichiers image). À remplacer par un vrai
-  spritesheet (TexturePacker, cf. `ASSETS.md` de CRASH-GAME) une fois le gameplay validé.
+- Assets réels (PNG) dans `src/assets/{chicken,icons,ui,road}/`, chargés via `Assets.load()`
+  (Pixi v8) dans `PixiRenderer.js` — poses de poule (idle/run/victory/ko) swappées selon
+  l'état de jeu, route continue en `TilingSprite`. Toute nouvelle couleur d'UI passe par
+  `src/theme.js`, jamais un hex codé en dur dans un composant.
 
 ## État actuel
 
@@ -84,6 +89,7 @@ provably fair vérifiable, historique, feed de gains, cadre mobile compact (view
 fixe, pas de scroll de page). RTP validé empiriquement via `npm run rtp-sim`
 (Monte Carlo sur le vrai chemin HMAC, cf. `.claude/skills/rtp-simulation/`).
 
-Pas encore : vrais sprites (placeholders `Graphics` uniquement), sons avancés, tests
-automatisés (aucun fichier de test dans le repo), load testing sur `server/index.js`
-(mêmes gaps que CRASH-GAME, voir son `PROTOCOL.md`).
+Pas encore : bordure de panneau BD (pas d'asset haute résolution fourni), logo/trophée
+dédié (wordmark texte + icône étoile en stand-in), sons avancés, tests automatisés (aucun
+fichier de test dans le repo), load testing sur `server/index.js` (mêmes gaps que
+CRASH-GAME, voir son `PROTOCOL.md`).

@@ -3,3 +3,7 @@ dist/
 .env
 .claude/settings.local.json
 .playwright-mcp/
+.impeccable/
+
+# Dev/verification screenshots dropped at repo root
+/*.png

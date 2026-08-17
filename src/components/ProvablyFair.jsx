@@ -3,6 +3,7 @@ import {
   DIFFICULTIES, DIFFICULTY_KEYS,
   hmacMessage, hexToUnitInterval, outcomeFromUnitInterval, computeStepMultiplier,
 } from '../shared/gameConfig';
+import { theme } from '../theme';
 
 // Web Crypto — même algorithme que le serveur (Node `crypto`), calculé côté client.
 async function computeStepOutcome(serverSeed, clientSeed, nonce, step, deathChance) {
@@ -34,8 +35,8 @@ function CopyButton({ text }) {
   return (
     <button onClick={copy} style={{
       padding: '3px 8px', borderRadius: '6px', border: 'none',
-      background: copied ? 'rgba(39,195,131,0.2)' : '#1e2a3a',
-      color: copied ? '#27c383' : '#7a8fa8', fontSize: '11px', cursor: 'pointer',
+      background: copied ? theme.successSoft : theme.surfaceAlt,
+      color: copied ? theme.success : theme.textMuted, fontSize: '11px', cursor: 'pointer',
     }}>
       {copied ? '✓' : 'copier'}
     </button>
@@ -47,8 +48,8 @@ function HashRow({ label, value }) {
   const short = value.length > 20 ? `${value.slice(0, 10)}…${value.slice(-10)}` : value;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-      <span style={{ color: '#4a6a8a', fontSize: '12px', minWidth: '110px' }}>{label}</span>
-      <code style={{ color: '#b0c4d8', fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+      <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>{label}</span>
+      <code style={{ color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
         {short}
       </code>
       <CopyButton text={value} />
@@ -108,33 +109,33 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
 
   return (
     <div style={{
-      marginTop: '14px', borderRadius: '16px', border: '1px solid rgba(138,184,255,0.08)',
-      background: '#080f1d', overflow: 'hidden',
+      marginTop: '14px', borderRadius: '16px', border: `1px solid ${theme.borderSoft}`,
+      background: theme.surfaceAlt, overflow: 'hidden',
     }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: '#8ab8ff',
+          padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', color: theme.accent,
         }}
       >
         <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           🔒 Provably Fair
         </span>
-        <span style={{ fontSize: '11px', color: '#4a6a8a' }}>{open ? '▲' : '▼'}</span>
+        <span style={{ fontSize: '11px', color: theme.textMuted }}>{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
         <div style={{ padding: '0 16px 16px', display: 'grid', gap: '12px' }}>
 
           <div style={{ display: 'grid', gap: '8px' }}>
-            <div style={{ color: '#4a6a8a', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ color: theme.textMuted, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Tour #{nonce || '—'}
             </div>
             <HashRow label="Server hash" value={serverSeedHash} />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ color: '#4a6a8a', fontSize: '12px', minWidth: '110px' }}>Client seed</span>
+              <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>Client seed</span>
               {editMode ? (
                 <>
                   <input
@@ -142,33 +143,33 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                     onChange={e => setEditSeed(e.target.value)}
                     placeholder={clientSeed}
                     style={{
-                      padding: '4px 8px', borderRadius: '7px', border: '1px solid #27303f',
-                      background: '#0a1220', color: 'white', fontSize: '12px', fontFamily: 'monospace',
+                      padding: '4px 8px', borderRadius: '7px', border: `1px solid ${theme.border}`,
+                      background: theme.surface, color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace',
                       width: '160px',
                     }}
                   />
                   <button onClick={handleSetSeed} style={{
                     padding: '4px 10px', borderRadius: '7px', border: 'none',
-                    background: 'rgba(39,195,131,0.2)', color: '#27c383', fontSize: '11px', cursor: 'pointer',
+                    background: theme.successSoft, color: theme.success, fontSize: '11px', cursor: 'pointer',
                   }}>
                     OK
                   </button>
                   <button onClick={() => setEditMode(false)} style={{
                     padding: '4px 8px', borderRadius: '7px', border: 'none',
-                    background: '#1e2a3a', color: '#7a8fa8', fontSize: '11px', cursor: 'pointer',
+                    background: theme.surface, color: theme.textMuted, fontSize: '11px', cursor: 'pointer',
                   }}>
                     Annuler
                   </button>
                 </>
               ) : (
                 <>
-                  <code style={{ color: '#b0c4d8', fontSize: '12px', fontFamily: 'monospace' }}>
+                  <code style={{ color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace' }}>
                     {clientSeed}
                   </code>
                   {canEditSeed && (
                     <button onClick={() => { setEditSeed(''); setEditMode(true); }} style={{
                       padding: '3px 8px', borderRadius: '6px', border: 'none',
-                      background: '#1e2a3a', color: '#8ab8ff', fontSize: '11px', cursor: 'pointer',
+                      background: theme.surface, color: theme.accent, fontSize: '11px', cursor: 'pointer',
                     }}>
                       modifier
                     </button>
@@ -181,16 +182,16 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
           {serverSeed && (
             <div style={{
               padding: '10px 12px', borderRadius: '10px',
-              background: 'rgba(39,195,131,0.06)', border: '1px solid rgba(39,195,131,0.15)',
+              background: theme.successSoft, border: `1px solid ${theme.success}33`,
               display: 'grid', gap: '6px',
             }}>
-              <div style={{ color: '#27c383', fontSize: '11px', fontWeight: 700 }}>✓ Server seed révélé</div>
+              <div style={{ color: theme.success, fontSize: '11px', fontWeight: 700 }}>✓ Server seed révélé</div>
               <HashRow label="Server seed" value={serverSeed} />
               <button
                 onClick={prefillVerifier}
                 style={{
                   alignSelf: 'start', marginTop: '4px', padding: '4px 10px', borderRadius: '7px',
-                  border: 'none', background: 'rgba(39,195,131,0.15)', color: '#27c383',
+                  border: 'none', background: `${theme.success}26`, color: theme.success,
                   fontSize: '11px', cursor: 'pointer',
                 }}
               >
@@ -199,10 +200,10 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
             </div>
           )}
 
-          <div style={{ height: '1px', background: '#1e2a3a' }} />
+          <div style={{ height: '1px', background: theme.borderSoft }} />
 
           <div style={{ display: 'grid', gap: '8px' }}>
-            <div style={{ color: '#4a6a8a', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ color: theme.textMuted, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Vérifier une case
             </div>
 
@@ -213,27 +214,27 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
               { label: 'Case (step)',  val: vStep,        set: setVStep,        ph: '1' },
             ].map(({ label, val, set, ph }) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: '#4a6a8a', fontSize: '12px', minWidth: '110px' }}>{label}</span>
+                <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>{label}</span>
                 <input
                   value={val}
                   onChange={e => { set(e.target.value); setVResult(null); }}
                   placeholder={ph}
                   style={{
-                    flex: 1, padding: '5px 8px', borderRadius: '7px', border: '1px solid #27303f',
-                    background: '#0a1220', color: 'white', fontSize: '12px', fontFamily: 'monospace',
+                    flex: 1, padding: '5px 8px', borderRadius: '7px', border: `1px solid ${theme.border}`,
+                    background: theme.surface, color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace',
                   }}
                 />
               </div>
             ))}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ color: '#4a6a8a', fontSize: '12px', minWidth: '110px' }}>Difficulté</span>
+              <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>Difficulté</span>
               <select
                 value={vDifficulty}
                 onChange={e => { setVDifficulty(e.target.value); setVResult(null); }}
                 style={{
-                  flex: 1, padding: '5px 8px', borderRadius: '7px', border: '1px solid #27303f',
-                  background: '#0a1220', color: 'white', fontSize: '12px',
+                  flex: 1, padding: '5px 8px', borderRadius: '7px', border: `1px solid ${theme.border}`,
+                  background: theme.surface, color: theme.textPrimary, fontSize: '12px',
                 }}
               >
                 {DIFFICULTY_KEYS.map(k => (
@@ -247,8 +248,8 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
               disabled={vLoading || !vServerSeed || !vClientSeed || !vNonce || !vStep}
               style={{
                 padding: '8px 16px', borderRadius: '10px', border: 'none',
-                background: (vLoading || !vServerSeed || !vClientSeed || !vNonce || !vStep) ? '#1e2a3a' : '#1e3a7a',
-                color: (vLoading || !vServerSeed || !vClientSeed || !vNonce || !vStep) ? '#4a6a8a' : '#8ab8ff',
+                background: (vLoading || !vServerSeed || !vClientSeed || !vNonce || !vStep) ? theme.surface : theme.info,
+                color: (vLoading || !vServerSeed || !vClientSeed || !vNonce || !vStep) ? theme.textMuted : theme.textOnAccent,
                 fontWeight: 700, fontSize: '13px', cursor: 'pointer',
               }}
             >
@@ -258,19 +259,19 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
             {vResult && (
               <div style={{
                 padding: '10px 12px', borderRadius: '10px',
-                background: vResult.ok ? (vResult.outcome === 'safe' ? 'rgba(39,195,131,0.06)' : 'rgba(255,90,90,0.06)') : 'rgba(255,90,90,0.06)',
-                border: `1px solid ${vResult.ok ? (vResult.outcome === 'safe' ? 'rgba(39,195,131,0.2)' : 'rgba(255,90,90,0.2)') : 'rgba(255,90,90,0.2)'}`,
+                background: vResult.ok && vResult.outcome === 'safe' ? theme.successSoft : theme.dangerSoft,
+                border: `1px solid ${vResult.ok && vResult.outcome === 'safe' ? theme.success : theme.danger}33`,
               }}>
                 {vResult.ok ? (
                   vResult.outcome === 'safe' ? (
-                    <span style={{ color: '#27c383', fontWeight: 700 }}>
+                    <span style={{ color: theme.success, fontWeight: 700 }}>
                       Case sûre — multiplicateur {vResult.multiplier.toFixed(2)}x
                     </span>
                   ) : (
-                    <span style={{ color: '#ff5a5a', fontWeight: 700 }}>🥷 Étoile ninja — case fatale</span>
+                    <span style={{ color: theme.danger, fontWeight: 700 }}>🥷 Étoile ninja — case fatale</span>
                   )
                 ) : (
-                  <span style={{ color: '#ff5a5a' }}>Erreur de calcul — vérifiez les valeurs.</span>
+                  <span style={{ color: theme.danger }}>Erreur de calcul — vérifiez les valeurs.</span>
                 )}
               </div>
             )}
