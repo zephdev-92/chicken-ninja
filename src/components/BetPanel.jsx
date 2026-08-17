@@ -25,10 +25,14 @@ function PressButton({ onClick, disabled, style, children }) {
 
 export default function BetPanel({
   bet, setBet, betError, minBet, maxBet, balance,
-  status, isIdleLike, step, multiplier, activeBet, actionPending,
+  status, isIdleLike, step, multiplier, activeBet, actionPending, roundAnimating,
   onStart, onStep, onCashOut,
 }) {
-  const canStart = isIdleLike && balance >= bet && bet >= minBet;
+  // isIdleLike flips true the instant a round busts/cashes out, but the road
+  // still needs ~half a second to play out the shuriken/KO animation — starting
+  // a new round before that finishes yanks the scene out from under it (see
+  // PixiRenderer.reset()), so the button stays locked until roundAnimating clears.
+  const canStart = isIdleLike && !roundAnimating && balance >= bet && bet >= minBet;
   const canStep = status === 'active' && !actionPending;
   const canCashOut = status === 'active' && step >= 1 && !actionPending;
 

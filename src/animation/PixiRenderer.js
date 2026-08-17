@@ -38,7 +38,7 @@ const MAX_SCENE_SCALE = 1.5; // cap so the scene doesn't blow up into an unreada
 // generated panel, split so they can scale independently: the sand ground can grow to fill
 // any canvas height without the post growing along with it and outscaling the chicken.
 const SAND_TILE_SCALE   = 0.6;              // dot density on screen — independent of canvas height
-const POST_DISPLAY_H    = CHICKEN_H * 1.55; // training post is taller than the chicken, not huge
+const POST_DISPLAY_H    = CHICKEN_H * 1.55 * 0.8; // training post is taller than the chicken, not huge — sized down 20% for the new archery-target artwork
 const POST_SPACING_LANES = 1;               // one post per lane, aligned under every badge
 
 const DEFAULT_LANES = Math.max(...Object.values(DIFFICULTIES).map(d => d.lanes));
@@ -101,6 +101,9 @@ export class PixiRenderer {
     this._shuriken = null; // { g, fromX, fromY, toX, toY, t }
     this._flash = 0;       // bust screen-flash alpha
     this._bounceT = null;  // cashout victory-bounce progress
+
+    this._busy = false;        // true while the bust/cashout animation is still playing
+    this._onBusyChange = null; // React callback — gates the "start new round" button while _busy
 
     this._onTick = this._onTick.bind(this);
   }
@@ -203,17 +206,17 @@ export class PixiRenderer {
       track.addChild(post);
     }
 
-    // Start-gate post near the start pad — sized off the chicken, not the container height,
-    // now that the canvas is a compact band rather than a tall flex area. Kept closer to
-    // lane 1 than a pure "1.15 tile-steps back" would be — at the scene's max zoom the
-    // camera's initial resting position (camMax) doesn't leave enough room further back,
-    // and the post was falling off the left edge of the canvas at idle.
+    // Start-gate post near the start pad — the "poulailler" artwork is a full building
+    // (roof, sign, lanterns) with the coop doorway/steps near its base. Doubled in size
+    // then shifted up-left off its old anchor so only that lower doorway portion reads
+    // on screen and the roof/signage bleed past the canvas edges — reads as "the hen is
+    // stepping out of a much bigger coop" rather than a signpost standing next to her.
     const startTex = this._textures.roadStartPost;
     const startPost = new Sprite(startTex);
     startPost.anchor.set(0.5, 0.86);
-    startPost.scale.set((CHICKEN_H * 1.9) / startTex.height);
-    startPost.x = -TILE_STEP * 0.5;
-    startPost.y = 6;
+    startPost.scale.set((CHICKEN_H * 1.9 * 2) / startTex.height);
+    startPost.x = -TILE_STEP * 0.9;
+    startPost.y = -40;
     track.addChild(startPost);
 
     for (let i = 1; i <= DEFAULT_LANES; i++) {
@@ -364,6 +367,19 @@ export class PixiRenderer {
 
   // ── Public contract ─────────────────────────────────────────────────────
 
+  // Registers a callback fired whenever a bust/cashout animation starts or
+  // finishes — lets the UI keep the "start new round" button disabled until
+  // the previous round has actually finished playing out on screen.
+  setBusyListener(cb) {
+    this._onBusyChange = cb;
+  }
+
+  _setBusy(v) {
+    if (this._busy === v) return;
+    this._busy = v;
+    this._onBusyChange?.(v);
+  }
+
   // Called when a brand-new round begins (fresh chicken, fresh tiles).
   reset() {
     if (!this._loaded) { this._pendingReset = true; return; }
@@ -372,8 +388,17 @@ export class PixiRenderer {
     this._hop        = null;
     this._topple      = false;
     this._koSquashT    = null;
+    // A shuriken can still be mid-flight if a new round is started (or the
+    // component remounts) before the previous bust animation finished — drop
+    // the sprite from the scene, not just the JS reference, or it's left
+    // stuck on screen forever since nothing else will ever remove it.
+    if (this._shuriken) {
+      this._track.removeChild(this._shuriken.g);
+      this._shuriken.g.destroy();
+    }
     this._shuriken     = null;
     this._flash        = 0;
+    if (this._app) this._app.renderer.background.color = BG_BASE;
     this._bounceT       = null;
     this._appliedStep   = 0;
     this._appliedStatus = 'idle';
@@ -387,6 +412,7 @@ export class PixiRenderer {
       ko.y = 6;
       this._setChickenPose('idle');
     }
+    this._setBusy(false);
   }
 
   update({ status, step = 0, lastOutcome }) {
@@ -427,6 +453,9 @@ export class PixiRenderer {
       this._app.destroy(true, { children: true, texture: false });
     }
     this._app = null;
+    // A remount (e.g. resize) mid-animation must not leave the "start round"
+    // button locked forever — nothing will ever clear _busy for this instance.
+    this._setBusy(false);
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
@@ -447,10 +476,12 @@ export class PixiRenderer {
     };
     this._hop = { fromX: this._chickenX, toX: targetTileX, t: 0 };
     this._topple = 'pending';
+    this._setBusy(true);
   }
 
   _bounce() {
     this._bounceT = 0;
+    this._setBusy(true);
   }
 
   _onTick(ticker) {
@@ -502,6 +533,13 @@ export class PixiRenderer {
       ko.y = 6 + 6 * ease;
     }
 
+    // The bust sequence (hop + shuriken + KO squash) is fully settled once all
+    // three finish — only then is it safe to let the player start a new round.
+    if (this._busy && this._topple === true && this._hop === null && this._shuriken === null
+        && (this._koSquashT === null || this._koSquashT >= 1)) {
+      this._setBusy(false);
+    }
+
     if (this._bounceT !== null) {
       this._bounceT += dt * 0.06;
       if (this._bounceT <= 1) {
@@ -509,6 +547,7 @@ export class PixiRenderer {
       } else {
         this._bounceT = null;
         this._chickenY = 0;
+        this._setBusy(false);
       }
     }
 

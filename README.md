@@ -35,6 +35,8 @@ npm run dev
 3. Encaissez à tout moment (dès la 1ère case franchie), ou continuez pour un gain plus élevé.
 4. Une étoile ninja met fin au tour — la mise est perdue.
 5. Chaque tour est vérifiable indépendamment via le panneau **Provably Fair**.
+6. Après un crash ou un encaissement, la table revient seule à l'écran de mise au bout
+   de 6 secondes si vous ne relancez pas de tour entre-temps.
 
 ## Provably fair
 

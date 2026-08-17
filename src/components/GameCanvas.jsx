@@ -4,7 +4,7 @@ import { PixiRenderer } from '../animation/PixiRenderer';
 const RESIZE_DEBOUNCE_MS = 200;
 const SIZE_CHANGE_THRESHOLD = 6; // ignore sub-pixel/scrollbar-induced jitter
 
-export default function GameCanvas({ status, step, lanes, lastOutcome, difficulty }) {
+export default function GameCanvas({ status, step, lanes, lastOutcome, difficulty, onBusyChange }) {
   const containerRef  = useRef(null);
   const rendererRef   = useRef(null);
   const prevStatusRef = useRef(null);
@@ -12,7 +12,7 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    liveRef.current = { status, step, lanes, lastOutcome, difficulty };
+    liveRef.current = { status, step, lanes, lastOutcome, difficulty, onBusyChange };
   });
 
   // Fills whatever space the flex parent gives it — tracks both dimensions,
@@ -46,6 +46,7 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
     const container = containerRef.current;
     const renderer   = new PixiRenderer();
     rendererRef.current = renderer;
+    renderer.setBusyListener(v => liveRef.current.onBusyChange?.(v));
 
     renderer.init(container, size.w, size.h)
       .then(() => {
@@ -69,8 +70,11 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
 
-    // A brand-new round starts: fresh chicken, fresh tiles.
-    if (status === 'active' && step === 0 && prev !== 'active') {
+    // A brand-new round starts: fresh chicken, fresh tiles. Same when the
+    // store auto-returns to idle after a finished round times out — the road
+    // needs to visually reset even though the player never pressed "Jouer".
+    if ((status === 'active' && step === 0 && prev !== 'active')
+        || (status === 'idle' && (prev === 'busted' || prev === 'cashed'))) {
       r.reset();
     }
     r.update({ status, step, lanes, lastOutcome });

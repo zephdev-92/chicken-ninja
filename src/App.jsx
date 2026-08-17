@@ -22,6 +22,7 @@ export default function App() {
   } = useChickenGame();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [roundAnimating, setRoundAnimating] = useState(false);
   const sound      = useSound();
   const prevStatus = useRef(status);
   const prevStep   = useRef(step_);
@@ -59,6 +60,7 @@ export default function App() {
           <GameCanvas
             status={status} step={step_} lanes={lanes} lastOutcome={lastOutcome}
             difficulty={status === 'active' ? difficulty : selectedDifficulty}
+            onBusyChange={setRoundAnimating}
           />
         </div>
 
@@ -91,6 +93,7 @@ export default function App() {
             minBet={minBet} maxBet={maxBet} balance={balance}
             status={status} isIdleLike={isIdleLike} actionPending={actionPending}
             step={step_} multiplier={multiplier} activeBet={activeBet}
+            roundAnimating={roundAnimating}
             onStart={startRound} onStep={step} onCashOut={cashOut}
           />
         </div>

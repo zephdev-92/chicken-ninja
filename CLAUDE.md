@@ -56,7 +56,10 @@ Chicken-ninja/
 │   └── components/           # ← UI React — cadre mobile fixe (voir App.jsx)
 │       ├── Header.jsx, Drawer.jsx (wallet/ProvablyFair/historique, hors flux principal)
 │       ├── GameCanvas.jsx, DifficultySelector.jsx, BetPanel.jsx,
-│       ├── MultiplierLadder.jsx, ProvablyFair.jsx, CashoutFeed.jsx (ticker "gains récents")
+│       ├── ProvablyFair.jsx, CashoutFeed.jsx (ticker "gains récents")
+│       # Échelle de multiplicateurs : plus de composant dédié — badges dessinés directement
+│       # sur les cases par PixiRenderer (buildMultiplierLadder dans gameConfig.js reste la
+│       # seule source des valeurs)
 ├── PROTOCOL.md (à créer si le protocole évolue — voir tableau socket dans README.md)
 ```
 
@@ -88,6 +91,22 @@ Prototype fonctionnel : mise, choix de difficulté, avancée case par case, cash
 provably fair vérifiable, historique, feed de gains, cadre mobile compact (viewport
 fixe, pas de scroll de page). RTP validé empiriquement via `npm run rtp-sim`
 (Monte Carlo sur le vrai chemin HMAC, cf. `.claude/skills/rtp-simulation/`).
+
+**Fin de tour (PixiRenderer + chickenStore) :**
+- `PixiRenderer.reset()` détruit le sprite shuriken en vol (et pas seulement la référence
+  JS) avant de démarrer un nouveau tour — sinon il reste accroché à la scène indéfiniment.
+- Le bouton "Jouer"/"Avancer" reste verrouillé (`PixiRenderer._busy` → `GameCanvas`
+  `onBusyChange` → `App.roundAnimating`) tant que l'animation de bust ou de cashout
+  n'est pas terminée, pour éviter qu'un nouveau tour démarre pendant l'animation
+  précédente et laisse des sprites orphelins.
+- `chickenStore` revient seul à `idle` 6s après un `busted`/`cashed` si le joueur ne
+  relance pas de tour entre-temps (`AUTO_IDLE_MS` dans `chickenStore.js`) — la scène
+  Pixi se réinitialise en conséquence dans `GameCanvas.jsx`.
+
+**Décor route (`PixiRenderer.js`) :** `road-start-post.png` (poulailler) est affiché à 2×
+sa taille de base et décalé haut-gauche pour ne montrer que la porte/les marches — donne
+l'effet "la poule sort d'un grand poulailler". `path-post.png` (cibles le long de la
+route) est réduit de 20% en conséquence.
 
 Pas encore : bordure de panneau BD (pas d'asset haute résolution fourni), logo/trophée
 dédié (wordmark texte + icône étoile en stand-in), sons avancés, tests automatisés (aucun
