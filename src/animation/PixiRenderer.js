@@ -27,18 +27,24 @@ const VIEW_ANCHOR = 0.30;   // fraction of canvas width where the chicken sits o
 const HOP_MS      = 320;
 const HOP_ARC     = 26;
 const SHURIKEN_MS = 220;
-const CHICKEN_H   = 66;     // display height, all poses scaled to match
+const CHICKEN_H   = 66 * 1.2; // display height, all poses scaled to match — +20%
 const KO_SQUASH_MS = 150;
 const BADGE_SIZE  = 46;     // multiplier disc drawn on each tile, replaces the plain lane number
 const TOP_CLEARANCE = CHICKEN_H + HOP_ARC + 30; // room above the road for the chicken hop + wall decor
 const REFERENCE_H     = 380; // canvas height the road/chicken/tiles were originally sized for
 const MAX_SCENE_SCALE = 1.5; // cap so the scene doesn't blow up into an unreadable zoom on very tall canvases
+const TRACK_Y_EXTRA    = 36; // nudges the whole road scene down off the safety-clearance line, more breathing room above without needing to fully center it
+
+// road-decor proportions (training posts, start/finish gates) are pinned to the chicken's
+// original height, not the live CHICKEN_H — so resizing the chicken doesn't drag the
+// already-tuned post/gate sizes along with it.
+const POST_REF_H = 66;
 
 // The sand/post source art (path-post.png, path-sand-tile.png) is cropped from the same
 // generated panel, split so they can scale independently: the sand ground can grow to fill
 // any canvas height without the post growing along with it and outscaling the chicken.
 const SAND_TILE_SCALE   = 0.6;              // dot density on screen — independent of canvas height
-const POST_DISPLAY_H    = CHICKEN_H * 1.55 * 0.8; // training post is taller than the chicken, not huge — sized down 20% for the new archery-target artwork
+const POST_DISPLAY_H    = POST_REF_H * 1.55 * 0.8; // training post is taller than the chicken, not huge — sized down 20% for the new archery-target artwork
 const POST_SPACING_LANES = 1;               // one post per lane, aligned under every badge
 
 const DEFAULT_LANES = Math.max(...Object.values(DIFFICULTIES).map(d => d.lanes));
@@ -117,12 +123,13 @@ export class PixiRenderer {
     // so proportions/art stay undistorted — lanes just get a bit larger, not squashed.
     const sceneScale = clamp(height / REFERENCE_H, 1, MAX_SCENE_SCALE);
     this._sceneScale = sceneScale;
-    // Track sits right below its safety clearance (not centered) — centering left the
+    // Track sits just below its safety clearance (not centered) — centering left the
     // road floating mid-canvas with an unavoidable dead gap above it (chicken height is
     // a small fraction of a tall flex canvas no matter how much the scene is scaled up).
     // Pinning it near the top instead hands the rest of the height to the ground plane
-    // below, which is what actually reads as "the game fills the canvas".
-    this._trackY = clamp(TOP_CLEARANCE * sceneScale, TOP_CLEARANCE, height - 30);
+    // below, which is what actually reads as "the game fills the canvas" — TRACK_Y_EXTRA
+    // nudges it down a bit further from that top-pinned line without fully centering it.
+    this._trackY = clamp(TOP_CLEARANCE * sceneScale + TRACK_Y_EXTRA, TOP_CLEARANCE, height - 30);
     // +2.5 tile-steps of slack (not +1) so the finish torii past the last lane
     // is fully revealed once the chicken reaches lane 24, not clipped off-screen.
     this._camMin = width - (DEFAULT_LANES + 2.5) * TILE_STEP * sceneScale - width * 0.1;
@@ -214,7 +221,7 @@ export class PixiRenderer {
     const startTex = this._textures.roadStartPost;
     const startPost = new Sprite(startTex);
     startPost.anchor.set(0.5, 0.86);
-    startPost.scale.set((CHICKEN_H * 1.9 * 2) / startTex.height);
+    startPost.scale.set((POST_REF_H * 1.9 * 2) / startTex.height);
     startPost.x = -TILE_STEP * 0.9;
     startPost.y = -40;
     track.addChild(startPost);
@@ -232,7 +239,7 @@ export class PixiRenderer {
     const finishTex = this._textures.roadFinishPost;
     const finishPost = new Sprite(finishTex);
     finishPost.anchor.set(0.5, 0.86);
-    finishPost.scale.set((CHICKEN_H * 1.9) / finishTex.height);
+    finishPost.scale.set((POST_REF_H * 1.9) / finishTex.height);
     finishPost.x = DEFAULT_LANES * TILE_STEP + TILE_STEP * 1.15;
     finishPost.y = 6;
     track.addChild(finishPost);

@@ -106,7 +106,14 @@ fixe, pas de scroll de page). RTP validé empiriquement via `npm run rtp-sim`
 **Décor route (`PixiRenderer.js`) :** `road-start-post.png` (poulailler) est affiché à 2×
 sa taille de base et décalé haut-gauche pour ne montrer que la porte/les marches — donne
 l'effet "la poule sort d'un grand poulailler". `path-post.png` (cibles le long de la
-route) est réduit de 20% en conséquence.
+route) est réduit de 20% en conséquence. Ces deux proportions sont ancrées sur une
+constante `POST_REF_H` fixe (indépendante de `CHICKEN_H`) pour ne pas bouger si la taille
+du poulet change.
+
+**Taille et position de la poule (`PixiRenderer.js`) :** `CHICKEN_H` a été augmenté de 20%
+(66 → 66*1.2) ; la scène (route/poule/portails, conteneur `track`) est décalée vers le bas
+via `TRACK_Y_EXTRA` sans toucher au fond sablé (`TilingSprite`, dessiné séparément sur
+`stage`).
 
 Pas encore : bordure de panneau BD (pas d'asset haute résolution fourni), logo/trophée
 dédié (wordmark texte + icône étoile en stand-in), sons avancés, tests automatisés (aucun
