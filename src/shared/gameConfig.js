@@ -5,11 +5,16 @@
 
 export const RTP = 0.97; // 3 % house edge, same convention as CRASH-GAME
 
+// `lanes` is a soft ceiling, not a target — at deathChance=0.03 (easy), survival past
+// 100 steps is already under 5%, so 200 lanes is effectively unreachable in normal play.
+// It exists so the road (and the server's auto-cashout-on-clear) has *a* bound, not to
+// give the player a natural stopping point: a round should only end via bust or a manual
+// cashout. Never drop this back near the number of visually reachable lanes.
 export const DIFFICULTIES = {
-  easy:     { label: 'Facile',   lanes: 24, deathChance: 0.03 },
-  medium:   { label: 'Moyen',    lanes: 24, deathChance: 0.07 },
-  hard:     { label: 'Difficile', lanes: 24, deathChance: 0.15 },
-  hardcore: { label: 'Extrême',  lanes: 24, deathChance: 0.30 },
+  easy:     { label: 'Facile',   lanes: 200, deathChance: 0.03 },
+  medium:   { label: 'Moyen',    lanes: 200, deathChance: 0.07 },
+  hard:     { label: 'Difficile', lanes: 200, deathChance: 0.15 },
+  hardcore: { label: 'Extrême',  lanes: 200, deathChance: 0.30 },
 };
 
 export const DIFFICULTY_KEYS = Object.keys(DIFFICULTIES);

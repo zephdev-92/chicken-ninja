@@ -81,10 +81,20 @@ function simulateCell(deathChance, step, nonceOffset) {
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────
-function spotSteps(lanes) {
-  const raw = [1, Math.ceil(lanes / 4), Math.ceil(lanes / 2), Math.ceil(lanes * 3 / 4), lanes];
-  return [...new Set(raw)];
+// `lanes` is a soft ceiling (see gameConfig.js), not a proportional gameplay milestone —
+// spot-checking fixed fractions of it (lanes/4, lanes/2, ...) would drive high-deathChance
+// difficulties into astronomically-improbable step counts (survival ~1e-30), producing
+// meaningless capped/noisy cells. Target fixed survival probabilities instead, so every
+// difficulty gets spot-checked at steps players actually reach.
+const TARGET_SURVIVAL_PS = [0.5, 0.1, 0.01, 0.001];
+
+function spotSteps(deathChance, lanes) {
+  const survivalLog = Math.log(1 - deathChance);
+  const steps = TARGET_SURVIVAL_PS.map(p => clampInt(Math.round(Math.log(p) / survivalLog), 1, lanes));
+  return [...new Set([1, ...steps])];
 }
+
+function clampInt(v, min, max) { return Math.min(Math.max(v, min), max); }
 
 function pct(x) { return `${(x * 100).toFixed(3)}%`; }
 
@@ -99,7 +109,7 @@ function main() {
     const { label, deathChance, lanes } = DIFFICULTIES[key];
     console.log(`── ${label}  (deathChance=${deathChance}, lanes=${lanes}) ──`);
 
-    for (const step of spotSteps(lanes)) {
+    for (const step of spotSteps(deathChance, lanes)) {
       const r = simulateCell(deathChance, step, nonceOffset);
       nonceOffset += r.n;
       if (!r.pass) allPass = false;

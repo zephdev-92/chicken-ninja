@@ -131,7 +131,7 @@ export class PixiRenderer {
     // nudges it down a bit further from that top-pinned line without fully centering it.
     this._trackY = clamp(TOP_CLEARANCE * sceneScale + TRACK_Y_EXTRA, TOP_CLEARANCE, height - 30);
     // +2.5 tile-steps of slack (not +1) so the finish torii past the last lane
-    // is fully revealed once the chicken reaches lane 24, not clipped off-screen.
+    // is fully revealed once the chicken reaches the last lane, not clipped off-screen.
     this._camMin = width - (DEFAULT_LANES + 2.5) * TILE_STEP * sceneScale - width * 0.1;
     this._camMax = width * VIEW_ANCHOR;
 
@@ -234,8 +234,9 @@ export class PixiRenderer {
     }
     this._setLadder(this._ladder);
 
-    // Finish-gate post — marks the end of the road (lane 24) the same way the start post
-    // marks the beginning, so the route reads as a defined path rather than an infinite loop.
+    // Finish-gate post — marks the end of the road (DEFAULT_LANES, a soft ceiling nobody
+    // should realistically reach) the same way the start post marks the beginning, so the
+    // route reads as a defined path rather than an infinite loop.
     const finishTex = this._textures.roadFinishPost;
     const finishPost = new Sprite(finishTex);
     finishPost.anchor.set(0.5, 0.86);
