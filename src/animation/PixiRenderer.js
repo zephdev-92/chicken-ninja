@@ -26,7 +26,12 @@ const TILE_STEP   = TILE_W + TILE_GAP;
 const VIEW_ANCHOR = 0.30;   // fraction of canvas width where the chicken sits on screen
 const HOP_MS      = 320;
 const HOP_ARC     = 26;
-const SHURIKEN_MS = 220;
+// Bust sequence used to fire the hop and the shuriken flight at the same time, so the
+// star landed (and the KO pose triggered) while the chicken was still mid-hop — the two
+// animations overlapped instead of reading as "chicken arrives, then gets hit". They now
+// run in sequence: hop lands → SUSPENSE_MS beat on the danger tile → shuriken thrown in.
+const SUSPENSE_MS = 180;
+const SHURIKEN_MS = 300;
 const CHICKEN_H   = 66 * 1.2; // display height, all poses scaled to match — +20%
 const KO_SQUASH_MS = 150;
 const BADGE_SIZE  = 46;     // multiplier disc drawn on each tile, replaces the plain lane number
@@ -105,6 +110,9 @@ export class PixiRenderer {
     this._koSquashT = null;
 
     this._shuriken = null; // { g, fromX, fromY, toX, toY, t }
+    this._suspenseT = null;  // beat between the hop landing and the shuriken being thrown
+    this._deathTileX = null; // tile the chicken hopped to, pending the shuriken throw
+    this._missShurikens = []; // near-miss shurikens falling on tiles the chicken just cleared
     this._flash = 0;       // bust screen-flash alpha
     this._bounceT = null;  // cashout victory-bounce progress
 
@@ -405,6 +413,12 @@ export class PixiRenderer {
       this._shuriken.g.destroy();
     }
     this._shuriken     = null;
+    this._suspenseT    = null;
+    this._deathTileX   = null;
+    // Same leak risk as the death shuriken above — drop any still-falling
+    // near-miss sprites from the scene before starting the new round.
+    this._missShurikens.forEach(s => { this._track.removeChild(s.g); s.g.destroy(); });
+    this._missShurikens = [];
     this._flash        = 0;
     if (this._app) this._app.renderer.background.color = BG_BASE;
     this._bounceT       = null;
@@ -434,13 +448,21 @@ export class PixiRenderer {
       if (this._tiles[nextIdx - 1] && this._tiles[nextIdx - 1].state === 'pending') {
         this._setTileState(nextIdx, 'current');
       }
+      // Near-miss: a shuriken drops on the tile the chicken is leaving, as if it
+      // just dodged it — plays alongside the hop, not gating it. Skipped on the
+      // very first step: the chicken is leaving the start gate, not a lane tile,
+      // so there's nothing to have dodged there.
+      if (this._appliedStep > 0) this._throwMissShuriken(this._appliedStep * TILE_STEP);
       this._startHop(step * TILE_STEP);
     }
 
     if (status === 'busted' && this._appliedStatus !== 'busted') {
       const deathLane = step + 1;
+      const targetTileX = deathLane * TILE_STEP;
       this._setTileState(deathLane, 'danger');
-      this._throwShuriken(deathLane * TILE_STEP);
+      this._deathTileX = targetTileX;
+      this._startHop(targetTileX);
+      this._setBusy(true);
     }
 
     if (status === 'cashed' && this._appliedStatus !== 'cashed') {
@@ -472,19 +494,31 @@ export class PixiRenderer {
     this._hop = { fromX: this._chickenX, toX: targetX, t: 0 };
   }
 
+  // Thrown in only once the chicken has landed on the danger tile and the suspense
+  // beat has played — falls straight down onto the tile (fromX === toX) so the
+  // motion reads as a vertical strike rather than a diagonal throw.
   _throwShuriken(targetTileX) {
     const s = new Sprite(this._textures.iconShuriken);
     s.anchor.set(0.5);
-    s.scale.set(28 / s.texture.width);
+    s.scale.set(32 / s.texture.width);
     this._track.addChild(s);
     this._shuriken = {
       g: s, t: 0,
-      fromX: targetTileX, fromY: -160,
+      fromX: targetTileX, fromY: -190,
       toX: targetTileX,   toY: 0,
     };
-    this._hop = { fromX: this._chickenX, toX: targetTileX, t: 0 };
-    this._topple = 'pending';
-    this._setBusy(true);
+  }
+
+  // Cosmetic near-miss: falls straight down onto a tile the chicken already left,
+  // independent of the death shuriken above — several can be in flight at once if
+  // the player advances quickly, so each lives in its own list entry.
+  _throwMissShuriken(tileX) {
+    const s = new Sprite(this._textures.iconShuriken);
+    s.anchor.set(0.5);
+    s.scale.set(32 / s.texture.width);
+    s.alpha = 0.85;
+    this._track.addChild(s);
+    this._missShurikens.push({ g: s, t: 0, x: tileX, fromY: -190, toY: 0 });
   }
 
   _bounce() {
@@ -505,7 +539,19 @@ export class PixiRenderer {
         this._chickenX = this._hop.toX;
         this._chickenY = 0;
         this._hop = null;
-        if (this._topple === 'pending') { this._topple = true; this._koSquashT = 0; }
+        // Death hop landed — hold on the danger tile for a beat before the shuriken
+        // is thrown in, instead of firing both at once.
+        if (this._deathTileX !== null) this._suspenseT = 0;
+      }
+    }
+
+    // Suspense beat between the death hop landing and the shuriken throw
+    if (this._suspenseT !== null) {
+      this._suspenseT += dt * (1000 / 60) / SUSPENSE_MS;
+      if (this._suspenseT >= 1) {
+        this._suspenseT = null;
+        this._throwShuriken(this._deathTileX);
+        this._deathTileX = null;
       }
     }
 
@@ -522,6 +568,26 @@ export class PixiRenderer {
         s.g.destroy();
         this._shuriken = null;
         this._flash = 1;
+        this._topple = true;
+        this._koSquashT = 0;
+      }
+    }
+
+    // Near-miss shuriken flights (survive steps) — independent of the death
+    // shuriken above, no flash/topple side effects, just fall and disappear.
+    if (this._missShurikens.length) {
+      for (let i = this._missShurikens.length - 1; i >= 0; i--) {
+        const s = this._missShurikens[i];
+        s.t += dt * (1000 / 60) / SHURIKEN_MS;
+        const t = clamp(s.t, 0, 1);
+        s.g.x = s.x;
+        s.g.y = s.fromY + (s.toY - s.fromY) * t;
+        s.g.rotation += dt * 0.6;
+        if (t >= 1) {
+          this._track.removeChild(s.g);
+          s.g.destroy();
+          this._missShurikens.splice(i, 1);
+        }
       }
     }
 
@@ -541,10 +607,10 @@ export class PixiRenderer {
       ko.y = 6 + 6 * ease;
     }
 
-    // The bust sequence (hop + shuriken + KO squash) is fully settled once all
-    // three finish — only then is it safe to let the player start a new round.
-    if (this._busy && this._topple === true && this._hop === null && this._shuriken === null
-        && (this._koSquashT === null || this._koSquashT >= 1)) {
+    // The bust sequence (hop + suspense + shuriken + KO squash) is fully settled once
+    // all four finish — only then is it safe to let the player start a new round.
+    if (this._busy && this._topple === true && this._hop === null && this._suspenseT === null
+        && this._shuriken === null && (this._koSquashT === null || this._koSquashT >= 1)) {
       this._setBusy(false);
     }
 
