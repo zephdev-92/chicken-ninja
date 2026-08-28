@@ -13,6 +13,7 @@ import roadStartPostUrl from '../assets/road/road-start-post.png';
 import roadFinishPostUrl from '../assets/road/road-finish-post.png';
 import pathSandTileUrl from '../assets/road/path-sand-tile.png';
 import pathPostUrl from '../assets/road/path-post.png';
+import cibleHitUrl from '../assets/road/cible-hit.png';
 import badgeMultiplierUrl from '../assets/ui/badge-multiplier.png';
 
 // Manga/BD scene — real sprites (src/assets/) replacing the old Graphics-only
@@ -26,12 +27,14 @@ const TILE_STEP   = TILE_W + TILE_GAP;
 const VIEW_ANCHOR = 0.30;   // fraction of canvas width where the chicken sits on screen
 const HOP_MS      = 320;
 const HOP_ARC     = 26;
-// Bust sequence used to fire the hop and the shuriken flight at the same time, so the
-// star landed (and the KO pose triggered) while the chicken was still mid-hop — the two
-// animations overlapped instead of reading as "chicken arrives, then gets hit". They now
-// run in sequence: hop lands → SUSPENSE_MS beat on the danger tile → shuriken thrown in.
-const SUSPENSE_MS = 180;
-const SHURIKEN_MS = 300;
+// Bust sequence: the shuriken is thrown during the tail of the death hop (once it's
+// HOP_THROW_PROGRESS through), not after it fully lands — the star is already visibly
+// incoming while the chicken is still touching down, instead of a separate dead beat
+// after landing. SHURIKEN_MS is tuned so the impact still falls a little after the hop
+// completes (not mid-air, which is what fully simultaneous used to look like), just
+// with far less total latency between the tile turning red and the actual hit.
+const HOP_THROW_PROGRESS = 0.7;
+const SHURIKEN_MS = 180;
 const CHICKEN_H   = 66 * 1.2; // display height, all poses scaled to match — +20%
 const KO_SQUASH_MS = 150;
 const BADGE_SIZE  = 46;     // multiplier disc drawn on each tile, replaces the plain lane number
@@ -91,6 +94,7 @@ export class PixiRenderer {
     this._h = 0;
 
     this._textures = null;
+    this._ground   = null; // sand TilingSprite — resized in place, see resize()
 
     this._trackY = 0;
     this._camMin = 0;
@@ -98,6 +102,7 @@ export class PixiRenderer {
     this._camX   = 0;
 
     this._tiles       = [];
+    this._posts       = []; // { sprite, x } — training-post sprites, looked up by x to swap in the hit texture
     this._appliedStep   = 0;
     this._appliedStatus = 'idle';
     this._ladder         = buildMultiplierLadder(DIFFICULTIES.easy.deathChance, DEFAULT_LANES);
@@ -110,21 +115,23 @@ export class PixiRenderer {
     this._koSquashT = null;
 
     this._shuriken = null; // { g, fromX, fromY, toX, toY, t }
-    this._suspenseT = null;  // beat between the hop landing and the shuriken being thrown
-    this._deathTileX = null; // tile the chicken hopped to, pending the shuriken throw
+    this._deathTileX = null; // tile the death hop is heading to, pending the shuriken throw
     this._missShurikens = []; // near-miss shurikens falling on tiles the chicken just cleared
     this._flash = 0;       // bust screen-flash alpha
     this._bounceT = null;  // cashout victory-bounce progress
 
     this._busy = false;        // true while the bust/cashout animation is still playing
     this._onBusyChange = null; // React callback — gates the "start new round" button while _busy
+    this._onSound = null;      // React callback('hop' | 'impact') — fired at the animation's own
+                                // clock, not React's status transition, so audio stays in sync
 
     this._onTick = this._onTick.bind(this);
   }
 
-  async init(containerEl, width, height) {
-    this._w = width;
-    this._h = height;
+  // Pure geometry: derives scene scale, track/camera bounds from the current canvas
+  // size. Shared by init() and resize() so a container resize can recompute these
+  // without rebuilding the scene graph (see resize() below).
+  _computeLayout(width, height) {
     // Whole scene (road/chicken/tiles) scales up uniformly when the canvas is taller than
     // the reference design height, so it fills the flex space App.jsx gives it instead of
     // sitting as a fixed-size band centered in a sea of cream. Uniform (not just vertical)
@@ -142,6 +149,12 @@ export class PixiRenderer {
     // is fully revealed once the chicken reaches the last lane, not clipped off-screen.
     this._camMin = width - (DEFAULT_LANES + 2.5) * TILE_STEP * sceneScale - width * 0.1;
     this._camMax = width * VIEW_ANCHOR;
+  }
+
+  async init(containerEl, width, height) {
+    this._w = width;
+    this._h = height;
+    this._computeLayout(width, height);
 
     const app = new Application();
     this._app = app;
@@ -166,6 +179,7 @@ export class PixiRenderer {
       roadFinishPost:  roadFinishPostUrl,
       pathSandTile:    pathSandTileUrl,
       pathPost:        pathPostUrl,
+      cibleHit:        cibleHitUrl,
       badgeMultiplier: badgeMultiplierUrl,
     };
     const entries = await Promise.all(
@@ -173,6 +187,14 @@ export class PixiRenderer {
     );
     this._textures = Object.fromEntries(entries);
     if (this._destroyed) { app.destroy(true); return; }
+
+    // Pick up a resize() that arrived while textures were still loading — resize()
+    // no-ops until _loaded flips true below, so without this the scene would build
+    // at the size init() originally started with instead of the current one.
+    if (this._w !== width || this._h !== height) {
+      this._computeLayout(this._w, this._h);
+      app.renderer.resize(this._w, this._h);
+    }
 
     const canvas = app.canvas;
     canvas.style.width   = '100%';
@@ -212,6 +234,7 @@ export class PixiRenderer {
     const postStartX = TILE_STEP;
     const postEndX = (DEFAULT_LANES + 3) * TILE_STEP;
     const postLocalY = (h - this._trackY) * 0.55 / this._sceneScale;
+    this._postLocalY = postLocalY; // near-miss shurikens fall to this same y so they land in the post, not short of it
     for (let x = postStartX; x < postEndX; x += TILE_STEP * POST_SPACING_LANES) {
       const post = new Sprite(postTex);
       post.anchor.set(0.5, 0.86);
@@ -219,6 +242,7 @@ export class PixiRenderer {
       post.x = x;
       post.y = postLocalY;
       track.addChild(post);
+      this._posts.push({ sprite: post, x });
     }
 
     // Start-gate post near the start pad — the "poulailler" artwork is a full building
@@ -270,6 +294,7 @@ export class PixiRenderer {
     const ground = new TilingSprite({ texture: this._textures.pathSandTile, width: w, height: h });
     ground.tileScale.set(SAND_TILE_SCALE);
     stage.addChild(ground);
+    this._ground = ground; // kept to resize in place — see resize()
   }
 
   _makeTileWash(w, h) {
@@ -381,6 +406,14 @@ export class PixiRenderer {
     t.container._draw(state);
   }
 
+  // Swaps a training post's texture to the "hit" artwork (shuriken lodged in the
+  // bullseye) once a near-miss shuriken lands on it — posts sit at the same x as
+  // the tile grid, so the shuriken's landing x matches a post directly.
+  _setPostHit(x) {
+    const post = this._posts.find(p => Math.abs(p.x - x) < 1);
+    if (post && this._textures?.cibleHit) post.sprite.texture = this._textures.cibleHit;
+  }
+
   // ── Public contract ─────────────────────────────────────────────────────
 
   // Registers a callback fired whenever a bust/cashout animation starts or
@@ -388,6 +421,14 @@ export class PixiRenderer {
   // the previous round has actually finished playing out on screen.
   setBusyListener(cb) {
     this._onBusyChange = cb;
+  }
+
+  // Registers a callback fired at the exact animation-clock moment a hop starts,
+  // or the shuriken visually connects with the chicken — status:'busted' arrives
+  // from the server well before either of those actually plays out on screen, so
+  // sound effects triggered off the React status transition read out of sync.
+  setSoundListener(cb) {
+    this._onSound = cb;
   }
 
   _setBusy(v) {
@@ -401,6 +442,10 @@ export class PixiRenderer {
     if (!this._loaded) { this._pendingReset = true; return; }
     this._pendingReset = false;
     this._tiles.forEach((t, i) => this._setTileState(i + 1, 'pending'));
+    // Reset any target posts hit last round back to their pristine texture.
+    if (this._textures?.pathPost) {
+      this._posts.forEach(p => { p.sprite.texture = this._textures.pathPost; });
+    }
     this._hop        = null;
     this._topple      = false;
     this._koSquashT    = null;
@@ -413,7 +458,6 @@ export class PixiRenderer {
       this._shuriken.g.destroy();
     }
     this._shuriken     = null;
-    this._suspenseT    = null;
     this._deathTileX   = null;
     // Same leak risk as the death shuriken above — drop any still-falling
     // near-miss sprites from the scene before starting the new round.
@@ -474,6 +518,34 @@ export class PixiRenderer {
     void lastOutcome;
   }
 
+  // Resizes the existing scene in place — recomputes scale/camera bounds and repositions
+  // the ground/track/posts, but never touches _tiles/_chicken/_appliedStep or any other
+  // in-progress round state. GameCanvas used to destroy() and recreate a whole new
+  // PixiRenderer on every container-size correction (including one that reliably fires
+  // a few hundred ms after a fresh page load, once web fonts finish loading and reflow
+  // the layout); the replacement instance always starts from its own fresh idle state
+  // (chicken at lane 0, every tile pending), which is a fine "empty" view but has no
+  // memory of the round actually in progress — driving it with update() at that point
+  // only cashes out cleanly if the round is fully idle, but silently desyncs from the
+  // real step/tile/chicken position otherwise, which read as the road randomly
+  // "restarting" mid-round right around a cashout.
+  resize(width, height) {
+    if (this._destroyed) return;
+    this._w = width;
+    this._h = height;
+    if (!this._loaded) { return; } // init() will pick up this._w/this._h once it runs
+    this._computeLayout(width, height);
+    this._app.renderer.resize(width, height);
+    if (this._ground) { this._ground.width = width; this._ground.height = height; }
+    this._track.y = this._trackY;
+    this._track.scale.set(this._sceneScale);
+    const postLocalY = (height - this._trackY) * 0.55 / this._sceneScale;
+    this._postLocalY = postLocalY;
+    this._posts.forEach(p => { p.sprite.y = postLocalY; });
+    this._camX = clamp(this._camX, this._camMin, this._camMax);
+    this._track.x = this._camX;
+  }
+
   destroy() {
     this._destroyed = true;
     // If init() hasn't finished yet, this._app has no ticker/stage wired up —
@@ -492,6 +564,7 @@ export class PixiRenderer {
 
   _startHop(targetX) {
     this._hop = { fromX: this._chickenX, toX: targetX, t: 0 };
+    this._onSound?.('hop');
   }
 
   // Thrown in only once the chicken has landed on the danger tile and the suspense
@@ -509,16 +582,19 @@ export class PixiRenderer {
     };
   }
 
-  // Cosmetic near-miss: falls straight down onto a tile the chicken already left,
-  // independent of the death shuriken above — several can be in flight at once if
-  // the player advances quickly, so each lives in its own list entry.
+  // Cosmetic near-miss: falls past a tile the chicken already left, independent of
+  // the death shuriken above — several can be in flight at once if the player
+  // advances quickly, so each lives in its own list entry. Falls all the way down
+  // to the training-post row (_postLocalY), not just past the tile line, so it
+  // reads as landing IN the target post rather than disappearing above it — the
+  // post then swaps to the "hit" texture the moment this sprite is removed.
   _throwMissShuriken(tileX) {
     const s = new Sprite(this._textures.iconShuriken);
     s.anchor.set(0.5);
     s.scale.set(32 / s.texture.width);
     s.alpha = 0.85;
     this._track.addChild(s);
-    this._missShurikens.push({ g: s, t: 0, x: tileX, fromY: -190, toY: 0 });
+    this._missShurikens.push({ g: s, t: 0, x: tileX, fromY: -190, toY: this._postLocalY });
   }
 
   _bounce() {
@@ -535,23 +611,24 @@ export class PixiRenderer {
       const t = clamp(this._hop.t, 0, 1);
       this._chickenX = this._hop.fromX + (this._hop.toX - this._hop.fromX) * t;
       this._chickenY = -Math.sin(Math.PI * t) * HOP_ARC;
+
+      // Death hop: throw the shuriken during the tail of the hop, not after it fully
+      // lands — the star is already visibly falling as the chicken touches down.
+      if (this._deathTileX !== null && t >= HOP_THROW_PROGRESS) {
+        this._throwShuriken(this._deathTileX);
+        this._deathTileX = null;
+      }
+
       if (t >= 1) {
         this._chickenX = this._hop.toX;
         this._chickenY = 0;
         this._hop = null;
-        // Death hop landed — hold on the danger tile for a beat before the shuriken
-        // is thrown in, instead of firing both at once.
-        if (this._deathTileX !== null) this._suspenseT = 0;
-      }
-    }
-
-    // Suspense beat between the death hop landing and the shuriken throw
-    if (this._suspenseT !== null) {
-      this._suspenseT += dt * (1000 / 60) / SUSPENSE_MS;
-      if (this._suspenseT >= 1) {
-        this._suspenseT = null;
-        this._throwShuriken(this._deathTileX);
-        this._deathTileX = null;
+        // Safety net for a large dt (backgrounded tab, dropped frame) skipping past
+        // HOP_THROW_PROGRESS in one tick — still throw once the hop lands regardless.
+        if (this._deathTileX !== null) {
+          this._throwShuriken(this._deathTileX);
+          this._deathTileX = null;
+        }
       }
     }
 
@@ -570,6 +647,9 @@ export class PixiRenderer {
         this._flash = 1;
         this._topple = true;
         this._koSquashT = 0;
+        // The chicken's pose flips to KO this same frame — the actual visual "hit",
+        // as opposed to status:'busted' which fired ~800ms earlier server-side.
+        this._onSound?.('impact');
       }
     }
 
@@ -587,6 +667,9 @@ export class PixiRenderer {
           this._track.removeChild(s.g);
           s.g.destroy();
           this._missShurikens.splice(i, 1);
+          // The falling sprite "becomes" the shuriken lodged in the target post.
+          this._setPostHit(s.x);
+          this._onSound?.('target-hit');
         }
       }
     }
@@ -607,9 +690,9 @@ export class PixiRenderer {
       ko.y = 6 + 6 * ease;
     }
 
-    // The bust sequence (hop + suspense + shuriken + KO squash) is fully settled once
-    // all four finish — only then is it safe to let the player start a new round.
-    if (this._busy && this._topple === true && this._hop === null && this._suspenseT === null
+    // The bust sequence (hop + shuriken + KO squash) is fully settled once all three
+    // finish — only then is it safe to let the player start a new round.
+    if (this._busy && this._topple === true && this._hop === null
         && this._shuriken === null && (this._koSquashT === null || this._koSquashT >= 1)) {
       this._setBusy(false);
     }

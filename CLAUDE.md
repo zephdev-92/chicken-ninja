@@ -51,7 +51,8 @@ Chicken-ninja/
 │   ├── animation/PixiRenderer.js  # Scène route bitumée manga/BD, Sprite + TilingSprite (src/assets/)
 │   ├── hooks/                # ← Spécifique React
 │   │   ├── useChickenGame.js #   État + wallet localStorage + actions
-│   │   ├── useSound.js       #   Web Audio API (hop / bust / cashout)
+│   │   ├── useSound.js       #   Web Audio API — hop/targetHit synthétisés, bust/cashout
+│   │   │                     #   rejouent de vrais fichiers (src/assets/sounds/*.mp3)
 │   │   └── useMediaQuery.js
 │   └── components/           # ← UI React — cadre mobile fixe (voir App.jsx)
 │       ├── Header.jsx, Drawer.jsx (wallet/ProvablyFair/historique, hors flux principal)
@@ -115,7 +116,35 @@ du poulet change.
 via `TRACK_Y_EXTRA` sans toucher au fond sablé (`TilingSprite`, dessiné séparément sur
 `stage`).
 
+**Séquence de bust (`PixiRenderer.js`) :** le shuriken fatal est lancé pendant la fin du
+saut (`HOP_THROW_PROGRESS`, ~70% du saut), pas après un temps d'attente séparé — il est
+déjà visible en train de tomber quand la poule atterrit, ce qui réduit la latence perçue
+entre la case qui devient rouge et l'impact réel. Les shurikens "presque ratés"
+(`_throwMissShuriken`, un par case franchie) tombent jusqu'à la hauteur des cibles
+(`_postLocalY`) : à leur disparition, la cible correspondante (`_posts`, indexée par x)
+bascule sur la texture `cible-hit.png`, remise à `path-post.png` au `reset()`.
+
+**Sons (`useSound.js` + `onSound`) :** `hop` et `targetHit` sont synthétisés à
+l'oscillateur (pas de fichier) ; `bust`/`cashout` rejouent de vrais fichiers MP3
+(`fetch` + `decodeAudioData`, mis en cache, joués via un `AudioBufferSourceNode` neuf à
+chaque appel pour permettre le chevauchement). Le hop et l'impact du bust ne sont
+**jamais** déclenchés directement sur le changement de `status` React — trop tôt par
+rapport à l'animation — mais via un callback `PixiRenderer.setSoundListener()` remonté
+par `GameCanvas` (`onSound`) jusqu'à `App.jsx`, déclenché exactement à la frame où
+l'animation correspondante démarre/touche. Le cashout reste déclenché sur `status`
+(pas de séquence multi-étapes avant le rebond).
+
+**Redimensionnement (`PixiRenderer.resize()` + `GameCanvas.jsx`) :** le renderer PixiJS
+n'est créé **qu'une seule fois** par montage de `GameCanvas` ; tout redimensionnement
+ultérieur du conteneur appelle `PixiRenderer.resize()` (recalcule échelle/caméra,
+repositionne sol et cibles) au lieu de `destroy()` + recréation. Détruire et recréer à
+chaque correction de taille (le `ResizeObserver` en déclenche fiablement une ~200ms après
+un chargement à froid, le temps que les polices web chargent) faisait repartir la scène de
+zéro (poule case 0, cases non cochées) sans mémoire du tour en cours — visible comme "le
+jeu se relance tout seul" juste après un cashout. Ne jamais réintroduire un
+`destroy()`+`new PixiRenderer()` sur un simple resize.
+
 Pas encore : bordure de panneau BD (pas d'asset haute résolution fourni), logo/trophée
-dédié (wordmark texte + icône étoile en stand-in), sons avancés, tests automatisés (aucun
-fichier de test dans le repo), load testing sur `server/index.js` (mêmes gaps que
-CRASH-GAME, voir son `PROTOCOL.md`).
+dédié (wordmark texte + icône étoile en stand-in), tests automatisés (aucun fichier de
+test dans le repo), load testing sur `server/index.js` (mêmes gaps que CRASH-GAME, voir
+son `PROTOCOL.md`).

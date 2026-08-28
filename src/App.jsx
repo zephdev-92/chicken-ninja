@@ -25,15 +25,23 @@ export default function App() {
   const [roundAnimating, setRoundAnimating] = useState(false);
   const sound      = useSound();
   const prevStatus = useRef(status);
-  const prevStep   = useRef(step_);
 
+  // Cashout has no multi-stage animation ahead of it (the bounce starts the same
+  // frame the round ends), so it's still safe to trigger straight off the React
+  // status transition. Hop/bust are driven by GameCanvas's onSound instead — the
+  // bust sequence (hop → suspense → shuriken flight) plays out ~800ms after the
+  // server's status:'busted' arrives, so firing off the status change read as
+  // badly out of sync with what's on screen.
   useEffect(() => {
-    if (status === 'active' && step_ > prevStep.current) sound.hop();
-    if (status === 'busted' && prevStatus.current !== 'busted') sound.bust();
     if (status === 'cashed' && prevStatus.current !== 'cashed') sound.cashout();
     prevStatus.current = status;
-    prevStep.current   = step_;
-  }, [status, step_, sound]);
+  }, [status, sound]);
+
+  const handleGameSound = (event) => {
+    if (event === 'hop') sound.hop();
+    else if (event === 'impact') sound.bust();
+    else if (event === 'target-hit') sound.targetHit();
+  };
 
   return (
     // The frame is capped in both directions (maxWidth AND maxHeight), then centered —
@@ -61,6 +69,7 @@ export default function App() {
             status={status} step={step_} lanes={lanes} lastOutcome={lastOutcome}
             difficulty={status === 'active' ? difficulty : selectedDifficulty}
             onBusyChange={setRoundAnimating}
+            onSound={handleGameSound}
           />
         </div>
 

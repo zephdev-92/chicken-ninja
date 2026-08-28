@@ -1,35 +1,69 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { PixiRenderer } from '../animation/PixiRenderer';
+import { theme } from '../theme';
 
 const RESIZE_DEBOUNCE_MS = 200;
 const SIZE_CHANGE_THRESHOLD = 6; // ignore sub-pixel/scrollbar-induced jitter
 
-export default function GameCanvas({ status, step, lanes, lastOutcome, difficulty, onBusyChange }) {
+export default function GameCanvas({ status, step, lanes, lastOutcome, difficulty, onBusyChange, onSound }) {
   const containerRef  = useRef(null);
   const rendererRef   = useRef(null);
   const prevStatusRef = useRef(null);
   const liveRef       = useRef({});
-  const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    liveRef.current = { status, step, lanes, lastOutcome, difficulty, onBusyChange };
+    liveRef.current = { status, step, lanes, lastOutcome, difficulty, onBusyChange, onSound };
   });
 
-  // Fills whatever space the flex parent gives it — tracks both dimensions,
-  // not just width, since the game area is a flexible row in a fixed-viewport shell.
+  // Single lifecycle owner for the PixiRenderer: created once with the container's
+  // current size, resized in place afterwards, destroyed only on unmount.
+  //
+  // This used to destroy() and recreate a brand-new PixiRenderer on every debounced
+  // size correction — including one that reliably fires a few hundred ms after a
+  // fresh page load, once web fonts finish loading and reflow the layout. The
+  // replacement instance always starts from its own fresh idle state (chicken at
+  // lane 0, every tile pending) with no memory of the round actually in progress —
+  // which read as the road randomly "restarting" mid-round, especially noticeable
+  // right around a cashout. resize() (see PixiRenderer.js) repositions the existing
+  // scene instead, so in-progress round state is never lost to a layout hiccup.
   useEffect(() => {
     const container = containerRef.current;
-    setSize({ w: container.clientWidth, h: container.clientHeight });
+
+    const createOrResize = (w, h) => {
+      if (!w || !h) return;
+      if (rendererRef.current) {
+        rendererRef.current.resize(w, h);
+        return;
+      }
+      const renderer = new PixiRenderer();
+      rendererRef.current = renderer;
+      renderer.setBusyListener(v => liveRef.current.onBusyChange?.(v));
+      renderer.setSoundListener(evt => liveRef.current.onSound?.(evt));
+
+      renderer.init(container, w, h)
+        .then(() => {
+          if (rendererRef.current !== renderer) return;
+          const { status, step, lastOutcome, difficulty } = liveRef.current;
+          renderer.setDifficulty(difficulty);
+          renderer.update({ status, step, lastOutcome });
+        })
+        .catch(err => console.error('[GameCanvas] PixiJS init failed:', err));
+    };
+
+    createOrResize(container.clientWidth, container.clientHeight);
 
     let timeout;
+    let lastW = container.clientWidth;
+    let lastH = container.clientHeight;
     const observer = new ResizeObserver(([entry]) => {
       const w = Math.round(entry.contentRect.width);
       const h = Math.round(entry.contentRect.height);
       clearTimeout(timeout);
       timeout = setTimeout(() => {
-        setSize(prev => (
-          Math.abs(prev.w - w) > SIZE_CHANGE_THRESHOLD || Math.abs(prev.h - h) > SIZE_CHANGE_THRESHOLD
-        ) ? { w, h } : prev);
+        if (Math.abs(lastW - w) <= SIZE_CHANGE_THRESHOLD && Math.abs(lastH - h) <= SIZE_CHANGE_THRESHOLD) return;
+        lastW = w;
+        lastH = h;
+        createOrResize(w, h);
       }, RESIZE_DEBOUNCE_MS);
     });
     observer.observe(container);
@@ -37,31 +71,10 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
     return () => {
       clearTimeout(timeout);
       observer.disconnect();
+      rendererRef.current?.destroy();
+      rendererRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    if (!size.w || !size.h) return;
-
-    const container = containerRef.current;
-    const renderer   = new PixiRenderer();
-    rendererRef.current = renderer;
-    renderer.setBusyListener(v => liveRef.current.onBusyChange?.(v));
-
-    renderer.init(container, size.w, size.h)
-      .then(() => {
-        if (rendererRef.current !== renderer) return;
-        const { status, step, lastOutcome, difficulty } = liveRef.current;
-        renderer.setDifficulty(difficulty);
-        renderer.update({ status, step, lastOutcome });
-      })
-      .catch(err => console.error('[GameCanvas] PixiJS init failed:', err));
-
-    return () => {
-      renderer.destroy();
-      if (rendererRef.current === renderer) rendererRef.current = null;
-    };
-  }, [size.w, size.h]);
 
   useEffect(() => {
     const r = rendererRef.current;
@@ -84,5 +97,8 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
     rendererRef.current?.setDifficulty(difficulty);
   }, [difficulty]);
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 0 }} />;
+  // Explicit background so the brief gap before init() resolves (WebGL setup +
+  // texture loading) shows the scene's own paper color instead of the browser's
+  // default white — or near-black in some dark-mode browsers — background.
+  return <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 0, background: theme.bg }} />;
 }
