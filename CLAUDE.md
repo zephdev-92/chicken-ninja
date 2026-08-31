@@ -74,6 +74,20 @@ multiplicateur après `n` cases franchies = `RTP * (1/(1-deathChance))^n` avec `
 Provably fair par case : `HMAC-SHA256(serverSeed, "clientSeed:nonce:step")` → `r ∈ [0,1)` →
 `r < deathChance` = étoile. Détails dans `src/shared/gameConfig.js`.
 
+**Edge progressif anti-"double facile" (`gameConfig.js`, `effectiveRTP`) :** le RTP de
+97% n'est plus flat sur tous les steps. Sur les steps 2 à 7, un edge supplémentaire
+(jusqu'à 15 points, proportionnel à `deathChance`) réduit le multiplicateur — sinon la
+compoundée `(1/survival)^n` fait quasi doubler la mise dès le 2e saut en `hardcore`
+(x1.98 avec ~49% de survie), un risque perçu trop faible pour le gain. L'edge est nul au
+step 1 (le premier saut reste "gagné normalement") et retombe à 0 au step 8, donc le
+end-game (haut risque réel) n'est pas touché ; `easy`/`medium` sont à peine affectés
+puisque l'edge est mis à l'échelle de `deathChance`. Conséquence : l'EV n'est plus
+identique quel que soit le step de cashout (c'était vrai avant, par construction) — cash
+out rapide sur `hard`/`hardcore` a maintenant un edge plus élevé que jouer plus loin.
+`scripts/rtp-simulation.js` valide contre `effectiveRTP(deathChance, step)` par step, pas
+contre un `RTP` flat — toujours relancer `npm run rtp-sim -- --deep` après toute
+modification de cette courbe.
+
 ## Conventions
 
 - Style inline (`style={{...}}`) comme CRASH-GAME, pas de CSS Modules/Tailwind pour l'instant.

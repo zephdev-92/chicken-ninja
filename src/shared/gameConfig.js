@@ -23,11 +23,32 @@ export function isValidDifficulty(key) {
   return Object.prototype.hasOwnProperty.call(DIFFICULTIES, key);
 }
 
+// Extra house edge layered on top of RTP for the first few steps, scaled by
+// deathChance so it mainly bites on hard/hardcore. Without this, the fair-odds
+// compounding on high deathChance makes step 2 land near a flat x2 (e.g.
+// hardcore: 0.7^-2 * 0.97 ≈ 1.98) — a near-coinflip parlay that pays out like
+// a safe bet. The edge fades to 0 by EDGE_FADE_STEPS so late-game multipliers
+// (the real risk/reward of the game) are untouched.
+const MAX_EARLY_EDGE      = 0.15; // extra edge at deathChance=EDGE_REF_DEATH_CHANCE, step 2
+const EDGE_REF_DEATH_CHANCE = 0.30; // hardcore — reference point for edgeScale
+export const EDGE_FADE_STEPS = 8;   // step at which the extra edge reaches 0 (exported so
+                                     // rtp-simulation.js can force spot-checks inside the window)
+
+// Theoretical expected return for cashing out at exactly `step`, at a given
+// deathChance. Equal to RTP everywhere except the damped early-step window.
+export function effectiveRTP(deathChance, step) {
+  if (step <= 1 || step >= EDGE_FADE_STEPS) return RTP;
+  const edgeScale = Math.min(1, deathChance / EDGE_REF_DEATH_CHANCE);
+  const stepFade  = 1 - (step - 1) / (EDGE_FADE_STEPS - 1);
+  return RTP - MAX_EARLY_EDGE * edgeScale * stepFade;
+}
+
 // Multiplier after `step` consecutive safe lanes at a given death chance.
-// Fair value would be (1/survival)^step; RTP scales it down for the house edge.
+// Fair value would be (1/survival)^step; effectiveRTP scales it down for the
+// house edge (flat 3% past the early-step window, more on hard/hardcore before it).
 export function computeStepMultiplier(deathChance, step) {
   const survival = 1 - deathChance;
-  const raw = RTP * Math.pow(1 / survival, step);
+  const raw = effectiveRTP(deathChance, step) * Math.pow(1 / survival, step);
   return Math.max(1, +raw.toFixed(2));
 }
 
