@@ -187,6 +187,27 @@ synchrone, donc chaque débit/crédit s'applique intégralement avant le suivant
 solde négatif, de débit perdu ou de crédit doublé, même en tirant deux `round:start`/
 `round:cashout` strictement au même instant réseau.
 
+**Décor scrollant + calques (`PixiRenderer.js`) :** le sol (`background-sand-tile.png`,
+remplace `path-sand-tile.png` conservé mais plus référencé) vit désormais dans `track`
+(pas `stage`) — il défile avec la caméra et couvre toute la longueur du parcours, pas
+seulement la largeur du canvas. `pattern-road.png` ajoute des segments de route
+**non répétés** entre chaque paire de cibles consécutives (`_layoutRoadSegments`) : une
+découpe verticale aléatoire de la texture source par intervalle (`Math.random() *
+maxCropY`, borné pour ne jamais dépasser le bas de l'image), à une échelle réduite
+(`ROAD_ZOOM = 0.75`) sur toute la hauteur de l'écran (converti en coordonnées locales
+via `-trackY/sceneScale` → `(h-trackY)/sceneScale`, puisque `track` est lui-même
+décalé/mis à l'échelle). Comme le sol et les segments sont reconstruits en place à
+chaque `resize()`, l'empilement visuel utilise `track.sortableChildren = true` +
+`zIndex` explicite (sol=0, route=1, cibles/portails=2, cases=3, poule=4) plutôt que
+l'ordre d'ajout — plus fiable qu'`addChildAt`.
+
+**Vignettage + cases (`PixiRenderer.js`) :** deux dégradés (`FillGradient`, natif Pixi
+v8) sur `stage` (fixes à l'écran, ajoutés après `track`) assombrissent haut/bas en
+teinte encre (`theme.textPrimary`). Les 3 états de case (`TILE_VISUALS` : prochain
+saut/validée/crash) sont maintenant des **cercles** (`wash.circle`, rayon `h/2`) plutôt
+que des rectangles arrondis, avec une opacité relevée (0.55/0.45/0.7) pour rester
+lisibles sur la texture route/rochers — l'ancien aplat à 0.18-0.35 se noyait dedans.
+
 **Tests machine (`scripts/`) :** `npm run rtp-sim -- --deep` (Monte Carlo autonome, sans
 serveur/réseau, réutilise le vrai chemin HMAC — voir `.claude/skills/rtp-simulation/`) et
 `npm run concurrency-test` (`scripts/concurrency-test.js` — spawn un vrai `server/index.js`

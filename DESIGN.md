@@ -169,6 +169,7 @@ qui détache le viewport du fond de page — pas une ombre de composant.
 ### Shadow Vocabulary
 - **frame-shadow** (`box-shadow: 0 0 60px rgba(26,14,10,0.35)`): uniquement sur le cadre mobile fixe (`App.jsx`), pour le détacher visuellement du fond `bg-deep`.
 - **text-impact** (`text-shadow: 0 1px 2px rgba(0,0,0,0.5)`): sur le texte du bouton d'action principal actif, pour rester lisible sur l'image de fond du bouton.
+- **scene-vignette** (deux dégradés linéaires teinte encre `#1a0e0a`, 70px, alpha 0.45 au bord → 0 au centre): haut et bas de la scène PixiJS uniquement (`PixiRenderer.js`), pas un composant UI — cadre l'attention sur la route sans assombrir les contrôles.
 
 ### Named Rules
 **The Flat-By-Default Rule.** Aucun composant interne (carte, bouton, badge, input) ne porte d'ombre. Seul le cadre externe de l'app en a une, pour le détacher du fond de page — jamais pour "faire flotter" un composant interne.
@@ -206,10 +207,24 @@ Costauds et tactiles : coins bien marqués, bordures nettes, feedback de pressio
 - Header : wordmark Bangers à gauche, pill de solde (`surface-alt`, radius 999px, texte `success-green`) au centre-droit, bouton menu carré 34×34px radius 10px à droite.
 - Drawer : panneau latéral plein hauteur, sections en cartes `surfaceAlt`/`surface` imbriquées avec labels uppercase `accent-red` 12px.
 
-### Multiplier Ladder / Badges (signature component)
-Bande horizontale scrollable de badges (radius 8px, fond `surface`, texte 700) représentant
-chaque palier de multiplicateur — le palier atteint doit se distinguer visuellement des
-paliers à venir (pas seulement par la couleur, cf. accessibilité).
+### Route de jeu (PixiJS — signature component)
+Plus une bande de badges séparée : chaque case affiche son multiplicateur directement sur
+le disque `badge-multiplier.png`, posé sur une route scrollante (sable + segments de
+route/cibles qui défilent avec la caméra, non répétés à l'identique d'un intervalle à
+l'autre — cf. `CLAUDE.md`).
+- **État de case** : cercle plein (pas de rectangle) centré sur la case — prochain saut
+  (`warning`/or, alpha 0.55), validée (`success`/vert, alpha 0.45), crash (`danger`/rouge,
+  alpha 0.7 + icône X, pas de badge). Le crash reste seul état doublé d'une icône ; pending
+  n'a aucun aplat (juste le badge).
+- **Pourquoi un cercle opaque plutôt qu'un aplat léger** : le fond est maintenant une
+  texture route/rochers illustrée, pas un sable uni — un aplat à 0.18-0.35 (valeur
+  d'origine, pensée pour un fond plat) s'y noie presque entièrement.
+
+### Named Rules
+**The Color-Plus-Marker Rule.** Un état de case (prochain saut/validée/crash) porte
+toujours au moins une différence de forme/icône en plus de la couleur — le crash a son
+icône X, la disparition du badge signale déjà un état différent des deux autres. Voir
+accessibilité (§ Accessibility & Inclusion, PRODUCT.md).
 
 ## 6. Do's and Don'ts
 

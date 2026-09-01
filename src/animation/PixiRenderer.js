@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text, Sprite, TilingSprite, Assets } from 'pixi.js';
+import { Application, Container, Graphics, Text, Sprite, TilingSprite, Texture, Rectangle, FillGradient, Assets } from 'pixi.js';
 import { DIFFICULTIES, buildMultiplierLadder } from '../shared/gameConfig.js';
 import { theme } from '../theme.js';
 
@@ -11,9 +11,10 @@ import iconXUrl from '../assets/icons/icon-x.png';
 import roadLaneTileUrl from '../assets/road/road-lane-tile.png';
 import roadStartPostUrl from '../assets/road/road-start-post.png';
 import roadFinishPostUrl from '../assets/road/road-finish-post.png';
-import pathSandTileUrl from '../assets/road/path-sand-tile.png';
+import backgroundSandTileUrl from '../assets/road/background-sand-tile.png';
 import pathPostUrl from '../assets/road/path-post.png';
 import cibleHitUrl from '../assets/road/cible-hit.png';
+import patternRoadUrl from '../assets/road/pattern-road.png';
 import badgeMultiplierUrl from '../assets/ui/badge-multiplier.png';
 
 // Manga/BD scene — real sprites (src/assets/) replacing the old Graphics-only
@@ -55,18 +56,40 @@ const SAND_TILE_SCALE   = 0.6;              // dot density on screen — indepen
 const POST_DISPLAY_H    = POST_REF_H * 1.55 * 0.8; // training post is taller than the chicken, not huge — sized down 20% for the new archery-target artwork
 const POST_SPACING_LANES = 1;               // one post per lane, aligned under every badge
 
+// pattern-road.png is a tall (258×3459), transparent-edged strip — one distinct crop
+// per gap between two consecutive posts (not tiled/repeated), so consecutive gaps show
+// different rocks/cacti instead of an obviously repeating pattern. Runs the full canvas
+// height, screen y=0 to the bottom edge (see _layoutRoadSegments, which converts that
+// to track-local coordinates since the road lives in `track`, not `stage`) — the crop
+// height needed to reach that span is computed per-canvas. ROAD_ZOOM shrinks the display
+// scale off what would exactly fill one post-to-post gap width, so a much larger
+// (denser-looking) slice of the source is shown instead of a 1:1 width match.
+const ROAD_ZOOM = 0.75;
+
 const DEFAULT_LANES = Math.max(...Object.values(DIFFICULTIES).map(d => d.lanes));
 
 const num = hex => parseInt(hex.replace('#', ''), 16);
+const hexToRgba = (hex, alpha) => {
+  const n = num(hex);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
+};
+
+// Top/bottom screen-space vignette — added straight to `stage` (not `track`, so it
+// stays fixed instead of scrolling with the camera). Ink-toned to match the halftone
+// palette rather than a neutral black.
+const VIGNETTE_H     = 70;
+const VIGNETTE_ALPHA = 0.45;
 
 // Each pending/current/cleared tile shows its multiplier on a disc (badge-multiplier.png);
 // danger replaces the disc with the X icon — you don't get that multiplier, showing it
-// would read as a reward instead of the bust it is.
+// would read as a reward instead of the bust it is. Wash alpha bumped well above the
+// original 0.18-0.35 — against the flat sand it used to sit on that read fine, but the
+// busy road/rock texture now underneath washes it out almost entirely at those levels.
 const TILE_VISUALS = {
   pending: { wash: null,          alpha: 0,    badge: true,  icon: null },
-  current: { wash: theme.warning, alpha: 0.28, badge: true,  icon: null },
-  cleared: { wash: theme.success, alpha: 0.18, badge: true,  icon: null },
-  danger:  { wash: theme.danger,  alpha: 0.35, badge: false, icon: 'iconX' },
+  current: { wash: theme.warning, alpha: 0.55, badge: true,  icon: null },
+  cleared: { wash: theme.success, alpha: 0.45, badge: true,  icon: null },
+  danger:  { wash: theme.danger,  alpha: 0.7,  badge: false, icon: 'iconX' },
 };
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -95,6 +118,8 @@ export class PixiRenderer {
 
     this._textures = null;
     this._ground   = null; // sand TilingSprite — resized in place, see resize()
+    this._vignetteTop    = null; // fixed screen-space overlays, redrawn on resize — see _drawVignette()
+    this._vignetteBottom = null;
 
     this._trackY = 0;
     this._camMin = 0;
@@ -103,6 +128,7 @@ export class PixiRenderer {
 
     this._tiles       = [];
     this._posts       = []; // { sprite, x } — training-post sprites, looked up by x to swap in the hit texture
+    this._roadSegments = []; // pattern-road crops, one per post-to-post gap — repositioned in resize()
     this._appliedStep   = 0;
     this._appliedStatus = 'idle';
     this._ladder         = buildMultiplierLadder(DIFFICULTIES.easy.deathChance, DEFAULT_LANES);
@@ -177,9 +203,10 @@ export class PixiRenderer {
       roadLaneTile:    roadLaneTileUrl,
       roadStartPost:   roadStartPostUrl,
       roadFinishPost:  roadFinishPostUrl,
-      pathSandTile:    pathSandTileUrl,
+      backgroundSandTile: backgroundSandTileUrl,
       pathPost:        pathPostUrl,
       cibleHit:        cibleHitUrl,
+      patternRoad:     patternRoadUrl,
       badgeMultiplier: badgeMultiplierUrl,
     };
     const entries = await Promise.all(
@@ -215,15 +242,20 @@ export class PixiRenderer {
   // ── Scene ────────────────────────────────────────────────────────────────
   _buildScene() {
     const { stage } = this._app;
-    const w = this._w, h = this._h;
-
-    this._buildBackground(stage, w, h);
+    const h = this._h;
 
     const track = new Container();
     track.y = this._trackY;
     track.scale.set(this._sceneScale);
+    // zIndex-based layering (ground → road segments → posts/gates → tiles → chicken)
+    // instead of relying purely on child-insertion order — road segments and the
+    // ground both get rebuilt in place on resize(), which would otherwise reshuffle
+    // insertion order relative to everything else already in `track`.
+    track.sortableChildren = true;
     this._track = track;
     stage.addChild(track);
+
+    this._buildBackground(track, h);
 
     // Training posts recur every ~2 lanes as individual sprites, not baked into a tiled
     // texture — sized off the chicken (POST_DISPLAY_H) so they stay proportionate no matter
@@ -235,12 +267,21 @@ export class PixiRenderer {
     const postEndX = (DEFAULT_LANES + 3) * TILE_STEP;
     const postLocalY = (h - this._trackY) * 0.55 / this._sceneScale;
     this._postLocalY = postLocalY; // near-miss shurikens fall to this same y so they land in the post, not short of it
-    for (let x = postStartX; x < postEndX; x += TILE_STEP * POST_SPACING_LANES) {
+
+    const postXs = [];
+    for (let x = postStartX; x < postEndX; x += TILE_STEP * POST_SPACING_LANES) postXs.push(x);
+    this._postXs = postXs; // reused by _layoutRoadSegments() on resize — post x's never change
+
+    // Road segments — added before the post loop below so posts render on top of them.
+    this._layoutRoadSegments();
+
+    for (const x of postXs) {
       const post = new Sprite(postTex);
       post.anchor.set(0.5, 0.86);
       post.scale.set(POST_DISPLAY_H / postTex.height);
       post.x = x;
       post.y = postLocalY;
+      post.zIndex = 2;
       track.addChild(post);
       this._posts.push({ sprite: post, x });
     }
@@ -256,11 +297,13 @@ export class PixiRenderer {
     startPost.scale.set((POST_REF_H * 1.9 * 2) / startTex.height);
     startPost.x = -TILE_STEP * 0.9;
     startPost.y = -40;
+    startPost.zIndex = 2;
     track.addChild(startPost);
 
     for (let i = 1; i <= DEFAULT_LANES; i++) {
       const tile = this._makeTileWash(TILE_W, TILE_H);
       tile.x = i * TILE_STEP;
+      tile.zIndex = 3;
       track.addChild(tile);
       this._tiles.push({ container: tile, state: 'pending' });
     }
@@ -275,9 +318,11 @@ export class PixiRenderer {
     finishPost.scale.set((POST_REF_H * 1.9) / finishTex.height);
     finishPost.x = DEFAULT_LANES * TILE_STEP + TILE_STEP * 1.15;
     finishPost.y = 6;
+    finishPost.zIndex = 2;
     track.addChild(finishPost);
 
     this._chicken = this._buildChicken();
+    this._chicken.zIndex = 4;
     track.addChild(this._chicken);
     this._chickenX = 0;
     this._chickenY = 0;
@@ -286,15 +331,68 @@ export class PixiRenderer {
 
     this._camX = this._camMax;
     track.x = this._camX;
+
+    this._buildVignette(stage);
   }
 
-  _buildBackground(stage, w, h) {
-    // Sand ground covers the full canvas (not just a strip below the track) so posts always
-    // stand on sand instead of straddling a seam between a cream sky and a tinted ground band.
-    const ground = new TilingSprite({ texture: this._textures.pathSandTile, width: w, height: h });
-    ground.tileScale.set(SAND_TILE_SCALE);
-    stage.addChild(ground);
-    this._ground = ground; // kept to resize in place — see resize()
+  // Top/bottom vignette — fixed screen-space overlay added last (on top of `track`,
+  // which holds everything else) so it reads as a lighting effect over the whole
+  // scene, not something that scrolls or scales with the camera/track.
+  _buildVignette(stage) {
+    const top = new Graphics();
+    const bottom = new Graphics();
+    this._vignetteTop = top;
+    this._vignetteBottom = bottom;
+    stage.addChild(top, bottom);
+    this._drawVignette();
+  }
+
+  _drawVignette() {
+    if (!this._vignetteTop) return;
+    const w = this._w, h = this._h;
+    const inkFull = hexToRgba(theme.textPrimary, VIGNETTE_ALPHA);
+    const inkNone = hexToRgba(theme.textPrimary, 0);
+
+    this._vignetteTop.clear();
+    this._vignetteTop.rect(0, 0, w, VIGNETTE_H).fill(new FillGradient({
+      type: 'linear',
+      start: { x: 0, y: 0 },
+      end: { x: 0, y: 1 },
+      colorStops: [{ offset: 0, color: inkFull }, { offset: 1, color: inkNone }],
+    }));
+
+    this._vignetteBottom.clear();
+    this._vignetteBottom.rect(0, h - VIGNETTE_H, w, VIGNETTE_H).fill(new FillGradient({
+      type: 'linear',
+      start: { x: 0, y: 0 },
+      end: { x: 0, y: 1 },
+      colorStops: [{ offset: 0, color: inkNone }, { offset: 1, color: inkFull }],
+    }));
+  }
+
+  // Sand ground lives in `track` (not `stage`), so it scrolls with the camera and
+  // duplicates horizontally along with everything else instead of sitting as a static
+  // backdrop — sized to span the whole route (like the training posts) rather than
+  // just the current viewport. Reaches the full canvas height (screen y=0 to bottom),
+  // converted to track-local coordinates the same way _layoutRoadSegments does.
+  // tileScale is divided by sceneScale to keep the same on-screen tile density now that
+  // this sits inside `track`'s own scale transform instead of directly on `stage`.
+  _buildBackground(track, height) {
+    const groundStartX = -TILE_STEP * 2;
+    const groundEndX = (DEFAULT_LANES + 4) * TILE_STEP;
+    const topLocal = -this._trackY / this._sceneScale;
+    const bottomLocal = (height - this._trackY) / this._sceneScale;
+    const ground = new TilingSprite({
+      texture: this._textures.backgroundSandTile,
+      width: groundEndX - groundStartX,
+      height: bottomLocal - topLocal,
+    });
+    ground.tileScale.set(SAND_TILE_SCALE / this._sceneScale);
+    ground.x = groundStartX;
+    ground.y = topLocal;
+    ground.zIndex = 0;
+    track.addChild(ground);
+    this._ground = ground; // resized in place — see resize()
   }
 
   _makeTileWash(w, h) {
@@ -319,7 +417,7 @@ export class PixiRenderer {
       const v = TILE_VISUALS[state] ?? TILE_VISUALS.pending;
       wash.clear();
       if (v.wash) {
-        wash.roundRect(-w / 2, -h / 2, w, h, 8).fill({ color: num(v.wash), alpha: v.alpha });
+        wash.circle(0, 0, h / 2).fill({ color: num(v.wash), alpha: v.alpha });
       }
       badge.visible = v.badge;
       multText.visible = v.badge;
@@ -412,6 +510,44 @@ export class PixiRenderer {
   _setPostHit(x) {
     const post = this._posts.find(p => Math.abs(p.x - x) < 1);
     if (post && this._textures?.cibleHit) post.sprite.texture = this._textures.cibleHit;
+  }
+
+  // (Re)builds the per-gap pattern-road crops — one slice of the source texture per
+  // post-to-post gap, with a random vertical crop offset (clamped to maxCropY, so the
+  // crop window never runs past the bottom of the source image) for visual variety.
+  // Runs the full canvas height (screen y=0 to the bottom edge, converted to track-local
+  // coordinates since the road lives in `track`, which is itself offset/scaled), so
+  // it's redone (old sprites/textures destroyed, new random crop) whenever canvas size
+  // changes — both at scene build time and from resize().
+  _layoutRoadSegments() {
+    this._roadSegments.forEach(seg => { this._track.removeChild(seg); seg.destroy({ children: true, texture: true, textureSource: false }); });
+    this._roadSegments = [];
+
+    const roadTex = this._textures?.patternRoad;
+    const postXs = this._postXs;
+    if (!roadTex || !postXs || postXs.length < 2) return;
+
+    const roadGapW = TILE_STEP * POST_SPACING_LANES;
+    const scale = (roadGapW / roadTex.width) * ROAD_ZOOM; // zoomed out from a 1:1 gap-width match
+    const topLocal    = -this._trackY / this._sceneScale;          // screen y=0
+    const bottomLocal = (this._h - this._trackY) / this._sceneScale; // screen y=this._h
+    const targetH = Math.max(40, bottomLocal - topLocal);
+    const cropH = Math.min(roadTex.height, targetH / scale);
+    const maxCropY = Math.max(0, roadTex.height - cropH);
+    const gapCount = postXs.length - 1;
+
+    for (let g = 0; g < gapCount; g++) {
+      const cropY = Math.random() * maxCropY;
+      const frame = new Rectangle(0, cropY, roadTex.width, Math.min(cropH, roadTex.height - cropY));
+      const seg = new Sprite(new Texture({ source: roadTex.source, frame }));
+      seg.anchor.set(0.5, 0);
+      seg.scale.set(scale);
+      seg.x = (postXs[g] + postXs[g + 1]) / 2;
+      seg.y = topLocal;
+      seg.zIndex = 1; // above the ground (0), below posts/tiles/chicken — see track.sortableChildren
+      this._track.addChild(seg);
+      this._roadSegments.push(seg);
+    }
   }
 
   // ── Public contract ─────────────────────────────────────────────────────
@@ -536,14 +672,22 @@ export class PixiRenderer {
     if (!this._loaded) { return; } // init() will pick up this._w/this._h once it runs
     this._computeLayout(width, height);
     this._app.renderer.resize(width, height);
-    if (this._ground) { this._ground.width = width; this._ground.height = height; }
     this._track.y = this._trackY;
     this._track.scale.set(this._sceneScale);
+    if (this._ground) {
+      const topLocal = -this._trackY / this._sceneScale;
+      const bottomLocal = (height - this._trackY) / this._sceneScale;
+      this._ground.y = topLocal;
+      this._ground.height = bottomLocal - topLocal;
+      this._ground.tileScale.set(SAND_TILE_SCALE / this._sceneScale);
+    }
     const postLocalY = (height - this._trackY) * 0.55 / this._sceneScale;
     this._postLocalY = postLocalY;
     this._posts.forEach(p => { p.sprite.y = postLocalY; });
+    this._layoutRoadSegments();
     this._camX = clamp(this._camX, this._camMin, this._camMax);
     this._track.x = this._camX;
+    this._drawVignette();
   }
 
   destroy() {
