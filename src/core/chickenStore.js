@@ -18,6 +18,10 @@ class ChickenStore extends EventTarget {
     super();
     this._idleTimer = null;
     this._state = {
+      // Server-authoritative — populated by the first session:sync, never
+      // guessed locally (see PROTOCOL / server-authoritative balance).
+      balance:        0,
+      walletBalance:  0,
       // States: idle | active | busted | cashed
       status:         'idle',
       difficulty:     null,

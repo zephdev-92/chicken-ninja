@@ -3,7 +3,20 @@ import { gameEvents } from './gameEvents.js';
 import { chickenStore } from './chickenStore.js';
 import { DIFFICULTIES } from '../shared/gameConfig.js';
 
-export const socket = io({ autoConnect: true });
+const TOKEN_KEY = 'chicken:playerToken';
+
+function readStoredToken() {
+  try { return localStorage.getItem(TOKEN_KEY) ?? undefined; } catch { return undefined; }
+}
+
+// Persists whatever token the server confirms — a fresh mint on first visit,
+// or the same one echoed back on every reconnect. Idempotent: writing the
+// same value back is a no-op in practice.
+function storeToken(token) {
+  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* localStorage unavailable */ }
+}
+
+export const socket = io({ autoConnect: true, auth: { token: readStoredToken() } });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,8 +45,10 @@ socket.on('disconnect', () => {
   dispatch('store:patch', { message: 'Connexion perdue — reconnexion...' });
 });
 
-socket.on('session:sync', ({ status, difficulty, step, multiplier, provablyFair }) => {
+socket.on('session:sync', ({ token, balance, wallet, status, difficulty, step, multiplier, provablyFair }) => {
+  if (token) storeToken(token);
   chickenStore.setState({
+    balance, walletBalance: wallet,
     status, difficulty, step, multiplier,
     provablyFair: provablyFair ?? chickenStore.getState().provablyFair,
     message: messageForStatus(status, difficulty),
@@ -48,16 +63,16 @@ socket.on('server:error', ({ code }) => {
 
 // ── Cycle de tour ────────────────────────────────────────────────────────────
 
-socket.on('round:started', ({ round, difficulty, bet, lanes, serverSeedHash, clientSeed, nonce }) => {
+socket.on('round:started', ({ difficulty, bet, lanes, serverSeedHash, clientSeed, nonce, balance }) => {
   const { provablyFair } = chickenStore.getState();
   chickenStore.setState({
+    balance,
     status: 'active', difficulty, activeBet: bet, lanes,
     step: 0, multiplier: 1, lanesRemaining: lanes, lastOutcome: null,
     cashoutMultiplier: null,
     provablyFair: { ...provablyFair, serverSeedHash, clientSeed, nonce, serverSeed: null },
     message: messageForStatus('active', difficulty),
   });
-  dispatch('round:started', { round, difficulty, bet });
 });
 
 socket.on('step:result', ({ step, multiplier, lanesRemaining }) => {
@@ -82,9 +97,10 @@ socket.on('round:busted', ({ round, step, serverSeed }) => {
   dispatch('round:busted', { step });
 });
 
-socket.on('round:cashout', ({ round, step, multiplier, payout, bet, serverSeed }) => {
+socket.on('round:cashout', ({ round, step, multiplier, payout, bet, serverSeed, balance }) => {
   const { provablyFair, difficulty } = chickenStore.getState();
   chickenStore.setState({
+    balance,
     status: 'cashed', cashoutMultiplier: multiplier,
     provablyFair: { ...provablyFair, serverSeed },
     message: `Encaissé à la case ${step} — gain ${payout} €.`,
@@ -93,7 +109,10 @@ socket.on('round:cashout', ({ round, step, multiplier, payout, bet, serverSeed }
     round, difficulty, bet, step,
     result: 'cashout', multiplier, payout, profit: +(payout - bet).toFixed(2),
   });
-  dispatch('player:cashout:result', { multiplier, payout, bet });
+});
+
+socket.on('wallet:sync', ({ balance, wallet }) => {
+  chickenStore.setState({ balance, walletBalance: wallet });
 });
 
 // ── Feed global (cosmétique) ─────────────────────────────────────────────────

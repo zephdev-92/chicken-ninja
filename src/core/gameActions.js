@@ -15,4 +15,10 @@ export const gameActions = {
   setClientSeed(seed) {
     socket.emit('player:set-client-seed', { seed });
   },
+  deposit(amount) {
+    socket.emit('wallet:deposit', { amount });
+  },
+  withdraw(amount) {
+    socket.emit('wallet:withdraw', { amount });
+  },
 };

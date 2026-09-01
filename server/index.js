@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { createHmac, createHash, randomBytes } from 'crypto';
+import { createHmac, createHash, randomBytes, timingSafeEqual } from 'crypto';
 import {
   DIFFICULTIES, isValidDifficulty,
   computeStepMultiplier, hmacMessage,
@@ -14,6 +14,8 @@ const io         = new Server(httpServer, { cors: { origin: '*' } });
 
 const MIN_BET = 1;
 const MAX_BET = 200;
+const DEFAULT_BALANCE = 100;
+const DEFAULT_WALLET  = 1000;
 
 function sha256hex(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -21,6 +23,50 @@ function sha256hex(data) {
 
 function hmacHex(serverSeed, message) {
   return createHmac('sha256', serverSeed).update(message).digest('hex');
+}
+
+// ── Player identity — anonymous, signed, in-memory ────────────────────────────
+// The signing secret lives only for the life of this process: a server restart
+// invalidates every outstanding token, which is fine since accounts themselves
+// are in-memory too (see PlayerAccount / accounts below) — nothing to keep
+// tokens valid for once the balances they point to are gone anyway.
+const TOKEN_SECRET = randomBytes(32).toString('hex');
+
+function signPlayerId(playerId) {
+  return createHmac('sha256', TOKEN_SECRET).update(playerId).digest('hex');
+}
+
+// Returns the playerId if the token is well-formed and its signature checks
+// out, otherwise null — never trust a playerId without re-deriving its
+// signature from our own secret.
+function verifyToken(token) {
+  if (typeof token !== 'string') return null;
+  const [playerId, signature] = token.split('.');
+  if (!playerId || !signature) return null;
+  const expected = signPlayerId(playerId);
+  if (expected.length !== signature.length) return null;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  return playerId;
+}
+
+class PlayerAccount {
+  constructor() {
+    this.balance = DEFAULT_BALANCE;
+    this.wallet  = DEFAULT_WALLET;
+  }
+}
+
+const accounts = new Map(); // playerId -> PlayerAccount
+
+function getOrCreateAccount(playerId) {
+  let account = accounts.get(playerId);
+  if (!account) {
+    account = new PlayerAccount();
+    accounts.set(playerId, account);
+  }
+  return account;
 }
 
 // Provably-fair, per lane: HMAC-SHA256(serverSeed, `${clientSeed}:${nonce}:${step}`)
@@ -34,8 +80,10 @@ function resolveStep(serverSeed, clientSeed, nonce, step, deathChance) {
 
 // ── Per-socket session — solo round vs. the house, no shared room ────────────
 class PlayerSession {
-  constructor(socket) {
+  constructor(socket, token, account) {
     this.socket      = socket;
+    this.token        = token;
+    this.account      = account;
     this.status       = 'idle'; // idle | active | busted | cashed
     this.round        = 0;      // nonce, increments per round started
     this.difficulty   = null;
@@ -48,6 +96,9 @@ class PlayerSession {
 
   syncState() {
     return {
+      token:      this.token,
+      balance:    this.account.balance,
+      wallet:     this.account.wallet,
       status:     this.status,
       difficulty: this.difficulty,
       step:       this.step,
@@ -70,6 +121,9 @@ class PlayerSession {
     if (!Number.isFinite(cleanBet) || cleanBet < MIN_BET || cleanBet > MAX_BET) {
       return { error: 'invalid_bet' };
     }
+    if (cleanBet > this.account.balance) return { error: 'insufficient_balance' };
+
+    this.account.balance = +(this.account.balance - cleanBet).toFixed(2);
 
     this.round++;
     this.difficulty = difficultyKey;
@@ -89,6 +143,7 @@ class PlayerSession {
         serverSeedHash: this.serverSeedHash,
         clientSeed: this.clientSeed,
         nonce: this.round,
+        balance: this.account.balance,
       },
     };
   }
@@ -114,10 +169,11 @@ class PlayerSession {
       // Cleared every lane — auto-cashout at the max multiplier.
       this.status = 'cashed';
       const payout = +(this.bet * multiplier).toFixed(2);
+      this.account.balance = +(this.account.balance + payout).toFixed(2);
       return {
         data: {
           busted: false, step: this.step, multiplier, lanesRemaining,
-          autoCashout: { multiplier, payout, bet: this.bet, serverSeed: this.serverSeed },
+          autoCashout: { multiplier, payout, bet: this.bet, serverSeed: this.serverSeed, balance: this.account.balance },
         },
       };
     }
@@ -133,11 +189,12 @@ class PlayerSession {
     const multiplier = computeStepMultiplier(deathChance, this.step);
     const payout      = +(this.bet * multiplier).toFixed(2);
     this.status        = 'cashed';
+    this.account.balance = +(this.account.balance + payout).toFixed(2);
 
     return {
       data: {
         step: this.step, multiplier, payout, bet: this.bet,
-        serverSeed: this.serverSeed,
+        serverSeed: this.serverSeed, balance: this.account.balance,
       },
     };
   }
@@ -149,11 +206,37 @@ class PlayerSession {
     this.clientSeed = clean;
     return true;
   }
+
+  // Moves funds between the reserve wallet and the in-play balance — clamped
+  // to what's actually available on each side, never goes negative.
+  deposit(amount) {
+    const clean = Math.min(this.account.wallet, Math.round(Number(amount)));
+    if (!Number.isFinite(clean) || clean <= 0) return { error: 'invalid_amount' };
+    this.account.wallet  = +(this.account.wallet - clean).toFixed(2);
+    this.account.balance = +(this.account.balance + clean).toFixed(2);
+    return { data: { balance: this.account.balance, wallet: this.account.wallet } };
+  }
+
+  withdraw(amount) {
+    const clean = Math.min(this.account.balance, Math.round(Number(amount)));
+    if (!Number.isFinite(clean) || clean <= 0) return { error: 'invalid_amount' };
+    this.account.balance = +(this.account.balance - clean).toFixed(2);
+    this.account.wallet  = +(this.account.wallet + clean).toFixed(2);
+    return { data: { balance: this.account.balance, wallet: this.account.wallet } };
+  }
 }
 
 io.on('connection', (socket) => {
   console.log('[server] connected:', socket.id);
-  const session = new PlayerSession(socket);
+
+  // Resolve (or mint) the anonymous player identity for this connection —
+  // never trust a client-supplied playerId without re-checking its signature.
+  const presentedToken = socket.handshake.auth?.token;
+  const verifiedId      = verifyToken(presentedToken);
+  const playerId        = verifiedId ?? randomBytes(16).toString('hex');
+  const token            = verifiedId ? presentedToken : `${playerId}.${signPlayerId(playerId)}`;
+  const account          = getOrCreateAccount(playerId);
+  const session          = new PlayerSession(socket, token, account);
 
   socket.emit('session:sync', session.syncState());
 
@@ -193,6 +276,18 @@ io.on('connection', (socket) => {
       shortId: socket.id.slice(-4), difficulty: session.difficulty,
       step: data.step, multiplier: data.multiplier, payout: data.payout,
     });
+  });
+
+  socket.on('wallet:deposit', ({ amount }) => {
+    const { data, error } = session.deposit(amount);
+    if (error) { socket.emit('server:error', { code: error }); return; }
+    socket.emit('wallet:sync', data);
+  });
+
+  socket.on('wallet:withdraw', ({ amount }) => {
+    const { data, error } = session.withdraw(amount);
+    if (error) { socket.emit('server:error', { code: error }); return; }
+    socket.emit('wallet:sync', data);
   });
 
   socket.on('player:set-client-seed', ({ seed }) => {

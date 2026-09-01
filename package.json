@@ -9,7 +9,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "rtp-sim": "node scripts/rtp-simulation.js"
+    "rtp-sim": "node scripts/rtp-simulation.js",
+    "concurrency-test": "node scripts/concurrency-test.js"
   },
   "dependencies": {
     "express": "^4.21.2",

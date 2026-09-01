@@ -18,40 +18,10 @@ export function useChickenGame() {
     () => chickenStore.getState(),
   );
 
-  const [walletBalance, setWalletBalance] = useState(() => {
-    try { return parseFloat(localStorage.getItem('chicken:wallet')  ?? '1000'); } catch { return 1000; }
-  });
-  const [balance, setBalance] = useState(() => {
-    try { return parseFloat(localStorage.getItem('chicken:balance') ?? '100');  } catch { return 100;  }
-  });
+  const { balance, walletBalance } = gameState;
   const [bet, setBetRaw]             = useState(10);
   const [betError, setBetError]      = useState('');
   const [selectedDifficulty, setSelectedDifficulty] = useState('easy');
-
-  useEffect(() => {
-    try { localStorage.setItem('chicken:wallet',  String(walletBalance)); } catch { /* localStorage unavailable */ }
-  }, [walletBalance]);
-  useEffect(() => {
-    try { localStorage.setItem('chicken:balance', String(balance)); } catch { /* localStorage unavailable */ }
-  }, [balance]);
-
-  // Deduct balance once the server confirms the round started
-  useEffect(() => {
-    const handler = ({ detail: { bet: confirmedBet } }) => {
-      setBalance(b => +(b - confirmedBet).toFixed(2));
-    };
-    gameEvents.addEventListener('round:started', handler);
-    return () => gameEvents.removeEventListener('round:started', handler);
-  }, []);
-
-  // Credit payout on cashout (manual or auto, at the end of the lanes)
-  useEffect(() => {
-    const handler = ({ detail: { payout } }) => {
-      setBalance(b => +(b + payout).toFixed(2));
-    };
-    gameEvents.addEventListener('player:cashout:result', handler);
-    return () => gameEvents.removeEventListener('player:cashout:result', handler);
-  }, []);
 
   // Surface server errors in the UI
   useEffect(() => {
@@ -123,17 +93,13 @@ export function useChickenGame() {
   };
 
   const depositToBankroll = (amount) => {
-    const next = Math.min(walletBalance, Math.round(amount));
-    if (next <= 0) return;
-    setWalletBalance(w => +(w - next).toFixed(2));
-    setBalance(b => +(b + next).toFixed(2));
+    if (Math.round(amount) <= 0) return;
+    gameActions.deposit(amount);
   };
 
   const withdrawFromBankroll = (amount) => {
-    const next = Math.min(balance, Math.round(amount));
-    if (next <= 0) return;
-    setBalance(b => +(b - next).toFixed(2));
-    setWalletBalance(w => +(w + next).toFixed(2));
+    if (Math.round(amount) <= 0) return;
+    gameActions.withdraw(amount);
   };
 
   return {

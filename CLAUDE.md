@@ -95,6 +95,11 @@ modification de cette courbe.
   jamais dupliquée côté serveur ou composant.
 - Le socket est privé par session (`socket.emit`), sauf `cashout:feed` qui est diffusé à
   tous (`io.emit`) — feed cosmétique de gains récents, pas de round partagé.
+- `balance`/`walletBalance` sont **server-authoritative** (voir section dédiée plus bas) —
+  ne jamais réintroduire un `useState`/`localStorage` qui recalcule ou stocke ces valeurs
+  côté client ; toujours passer par `gameActions.startRound/cashOut/deposit/withdraw` et
+  lire le résultat depuis `chickenStore` (alimenté par `session:sync`/`round:started`/
+  `round:cashout`/`wallet:sync`).
 - Assets réels (PNG) dans `src/assets/{chicken,icons,ui,road}/`, chargés via `Assets.load()`
   (Pixi v8) dans `PixiRenderer.js` — poses de poule (idle/run/victory/ko) swappées selon
   l'état de jeu, route continue en `TilingSprite`. Toute nouvelle couleur d'UI passe par
@@ -157,6 +162,39 @@ un chargement à froid, le temps que les polices web chargent) faisait repartir 
 zéro (poule case 0, cases non cochées) sans mémoire du tour en cours — visible comme "le
 jeu se relance tout seul" juste après un cashout. Ne jamais réintroduire un
 `destroy()`+`new PixiRenderer()` sur un simple resize.
+
+**Solde server-authoritative (`server/index.js` + `src/core/`) :** `balance` (solde en
+jeu) et `walletBalance` (réserve) vivent désormais côté serveur, dans une `Map` en mémoire
+(`accounts`, clé = `playerId`), plus dans `localStorage` côté client. Identité anonyme :
+au premier contact, le serveur mint un token signé (`HMAC-SHA256(secret_process, playerId)`)
+transmis via le handshake Socket.IO (`io({ auth: { token } })`) ; le client le persiste en
+`localStorage` (`chicken:playerToken`) et le renvoie à chaque reconnexion. Le secret de
+signature est généré en mémoire au boot du process — un redémarrage serveur invalide donc
+tous les tokens et remet les comptes à zéro par construction (cohérent avec "pas de DB").
+`startRound` débite `account.balance` côté serveur (rejette avec `insufficient_balance` si
+la mise dépasse le solde réel), `cashOut`/auto-cashout crédite le payout, `wallet:deposit`/
+`wallet:withdraw` déplacent des fonds entre wallet et balance — toutes ces mutations sont
+renvoyées au client via le payload de l'événement concerné (`round:started.balance`,
+`round:cashout.balance`, `wallet:sync`), jamais recalculées côté client. Limitations
+acceptées : pas de vrai compte (vider `localStorage` recrée un compte par défaut), solde
+perdu au redémarrage serveur — un vrai système d'auth (Supabase) resterait à faire pour
+lever ces limites. Multi-onglets sur le même token : chaque socket a sa propre
+`PlayerSession` (round/step/status) mais partage le même `PlayerAccount` (balance/wallet) —
+donc deux onglets peuvent avoir chacun un tour actif en parallèle sur le même solde, comme
+deux joueurs distincts. Vérifié empiriquement sans race exploitable (`npm run
+concurrency-test`, scénario "shared-token") : Node traite les handlers socket de façon
+synchrone, donc chaque débit/crédit s'applique intégralement avant le suivant — jamais de
+solde négatif, de débit perdu ou de crédit doublé, même en tirant deux `round:start`/
+`round:cashout` strictement au même instant réseau.
+
+**Tests machine (`scripts/`) :** `npm run rtp-sim -- --deep` (Monte Carlo autonome, sans
+serveur/réseau, réutilise le vrai chemin HMAC — voir `.claude/skills/rtp-simulation/`) et
+`npm run concurrency-test` (`scripts/concurrency-test.js` — spawn un vrai `server/index.js`
+et pilote plusieurs vrais clients `socket.io-client` concurrents ; vérifie qu'aucune mise
+n'est acceptée deux fois sur une même session, qu'aucun cashout n'est payé deux fois, et
+que le solde annoncé par le serveur colle exactement à la mise/au payout à chaque
+événement — y compris le cas multi-onglets ci-dessus). Options : `--players=`, `--rounds=`,
+`--port=`.
 
 Pas encore : bordure de panneau BD (pas d'asset haute résolution fourni), logo/trophée
 dédié (wordmark texte + icône étoile en stand-in), tests automatisés (aucun fichier de
