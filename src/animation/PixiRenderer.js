@@ -150,6 +150,7 @@ export class PixiRenderer {
     this._onBusyChange = null; // React callback — gates the "start new round" button while _busy
     this._onSound = null;      // React callback('hop' | 'impact') — fired at the animation's own
                                 // clock, not React's status transition, so audio stays in sync
+    this._onLoadProgress = null; // React callback(0-1) — real Assets.load() progress, see init()
 
     this._onTick = this._onTick.bind(this);
   }
@@ -209,10 +210,12 @@ export class PixiRenderer {
       patternRoad:     patternRoadUrl,
       badgeMultiplier: badgeMultiplierUrl,
     };
-    const entries = await Promise.all(
-      Object.entries(urls).map(async ([key, url]) => [key, await Assets.load(url)]),
-    );
-    this._textures = Object.fromEntries(entries);
+    // Loaded as one batch (not per-URL in parallel) so Assets.load's progress callback
+    // reports real aggregate 0-1 progress across every texture, not just resolve/reject —
+    // GameCanvas uses it to drive an actual loading bar instead of a fake one.
+    const urlList = Object.values(urls);
+    const loaded = await Assets.load(urlList, progress => this._onLoadProgress?.(progress));
+    this._textures = Object.fromEntries(Object.entries(urls).map(([key, url]) => [key, loaded[url]]));
     if (this._destroyed) { app.destroy(true); return; }
 
     // Pick up a resize() that arrived while textures were still loading — resize()
@@ -403,6 +406,7 @@ export class PixiRenderer {
     const badge = new Sprite(this._textures.badgeMultiplier);
     badge.anchor.set(0.5);
     badge.scale.set(BADGE_SIZE / badge.texture.width);
+    badge.y = 4; // nudges the badge art down slightly so it centers on the number, not the tile origin
     c.addChild(badge);
 
     const multText = new Text({
@@ -565,6 +569,12 @@ export class PixiRenderer {
   // sound effects triggered off the React status transition read out of sync.
   setSoundListener(cb) {
     this._onSound = cb;
+  }
+
+  // Registers a callback fired with real 0-1 progress while textures load in init() —
+  // must be set before init() is called to catch the earliest progress ticks.
+  setLoadListener(cb) {
+    this._onLoadProgress = cb;
   }
 
   _setBusy(v) {

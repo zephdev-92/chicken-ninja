@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PixiRenderer } from '../animation/PixiRenderer';
 import { theme } from '../theme';
 
@@ -10,6 +10,11 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
   const rendererRef   = useRef(null);
   const prevStatusRef = useRef(null);
   const liveRef       = useRef({});
+  // Real Assets.load() progress (0-1) — covers the cold-load latency (WebGL init +
+  // ~14 textures) before the scene has anything to show. Only ever set during the
+  // very first renderer creation; resize()s afterward never touch it again.
+  const [loading, setLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState(0);
 
   useEffect(() => {
     liveRef.current = { status, step, lanes, lastOutcome, difficulty, onBusyChange, onSound };
@@ -39,6 +44,7 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
       rendererRef.current = renderer;
       renderer.setBusyListener(v => liveRef.current.onBusyChange?.(v));
       renderer.setSoundListener(evt => liveRef.current.onSound?.(evt));
+      renderer.setLoadListener(setLoadProgress);
 
       renderer.init(container, w, h)
         .then(() => {
@@ -46,6 +52,7 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
           const { status, step, lastOutcome, difficulty } = liveRef.current;
           renderer.setDifficulty(difficulty);
           renderer.update({ status, step, lastOutcome });
+          setLoading(false);
         })
         .catch(err => console.error('[GameCanvas] PixiJS init failed:', err));
     };
@@ -99,6 +106,37 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
 
   // Explicit background so the brief gap before init() resolves (WebGL setup +
   // texture loading) shows the scene's own paper color instead of the browser's
-  // default white — or near-black in some dark-mode browsers — background.
-  return <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 0, background: theme.bg }} />;
+  // default white — or near-black in some dark-mode browsers — background. `position:
+  // relative` so the loading overlay below anchors to this container, not the page —
+  // it's a plain React child sitting alongside PixiJS's imperatively-appended canvas.
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: 0, background: theme.bg }}>
+      {loading && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 1,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '14px',
+          background: theme.bg,
+        }}>
+          <span style={{
+            fontFamily: theme.fontDisplay, fontSize: '22px', letterSpacing: '0.02em',
+            color: theme.accent, textShadow: `1px 1px 0 ${theme.textPrimary}`,
+          }}>
+            CHICKEN NINJA
+          </span>
+          <div style={{
+            width: '160px', height: '10px', borderRadius: '999px',
+            background: theme.surfaceAlt, border: `1px solid ${theme.border}`, overflow: 'hidden',
+          }}>
+            <div style={{
+              width: `${Math.round(loadProgress * 100)}%`, height: '100%',
+              background: theme.accent, transition: 'width 120ms ease-out',
+            }} />
+          </div>
+          <span style={{ fontSize: '11px', color: theme.textMuted, fontWeight: 600 }}>
+            Chargement… {Math.round(loadProgress * 100)}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
 }
