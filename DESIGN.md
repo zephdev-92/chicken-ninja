@@ -20,7 +20,7 @@ colors:
 typography:
   display:
     fontFamily: "'Bangers', 'Inter', Arial, sans-serif"
-    fontSize: "19px"
+    fontSize: "30px"
     fontWeight: 400
     lineHeight: 1
     letterSpacing: "0.02em"
@@ -150,7 +150,7 @@ weight 600-700 porte tout le reste — l'utilitaire (mise, multiplicateurs, bout
 toujours lisible en priorité sur l'expressif.
 
 ### Hierarchy
-- **Display** (400, 19px, Bangers, letter-spacing 0.02em): wordmark du header, uniquement.
+- **Display** (400, 30px, Bangers, letter-spacing 0.02em): wordmark du header, uniquement.
 - **Body** (600-700, 13-14px): boutons, valeurs de mise, labels d'action.
 - **Label** (700, 11px, letter-spacing 0.05em, souvent uppercase): badges, chips de difficulté, en-têtes de section dans le Drawer.
 - **Mono** (400, 12px, monospace): hash serveur, seed client, nonce — tout ce qui doit être copié/vérifié en provably fair.

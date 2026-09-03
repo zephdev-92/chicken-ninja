@@ -208,6 +208,24 @@ saut/validée/crash) sont maintenant des **cercles** (`wash.circle`, rayon `h/2`
 que des rectangles arrondis, avec une opacité relevée (0.55/0.45/0.7) pour rester
 lisibles sur la texture route/rochers — l'ancien aplat à 0.18-0.35 se noyait dedans.
 
+**Bug de repaint Chrome dans le Drawer (`Drawer.jsx` + `ProvablyFair.jsx`) :** une fois
+l'historique plein (10 entrées, cap dans `chickenStore.addHistory`), le bloc "Provably
+Fair" au-dessus disparaissait visuellement — présent et correct dans le DOM/inspecteur,
+juste jamais repeint, jusqu'à un rechargement complet. Cause : `overflow: hidden` sur le
+conteneur Provably Fair (coins arrondis) combiné à la liste d'historique qui grossit juste
+en dessous perturbait l'heuristique de promotion de calque de Chrome. Corrigé en
+remplaçant par `overflow: 'clip'` (pas de conteneur de scroll implicite, contourne le
+bug) sur `ProvablyFair.jsx`, plus `contain: 'paint'` sur la liste d'historique dans
+`Drawer.jsx` pour isoler son propre rendu. Diagnostiqué via l'inspecteur DOM du
+navigateur — invisible en lecture de code ou en test automatisé (aucune erreur console,
+non reproduit par un navigateur headless piloté par script).
+
+**Badge multiplicateur et wordmark (`PixiRenderer.js` + `Header.jsx`) :** `BADGE_SIZE`
+46→54px et texte 11→12px (les chiffres à 2 décimales étaient tronqués sur le disque) ;
+le wordmark "CHICKEN NINJA" du header passe de 19px à 30px — valeur reportée dans le
+frontmatter `typography.display` et la section Hierarchy de `DESIGN.md`, à garder
+synchronisé si retouché.
+
 **Tests machine (`scripts/`) :** `npm run rtp-sim -- --deep` (Monte Carlo autonome, sans
 serveur/réseau, réutilise le vrai chemin HMAC — voir `.claude/skills/rtp-simulation/`) et
 `npm run concurrency-test` (`scripts/concurrency-test.js` — spawn un vrai `server/index.js`

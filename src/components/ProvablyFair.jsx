@@ -110,7 +110,14 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
   return (
     <div style={{
       marginTop: '14px', borderRadius: '16px', border: `1px solid ${theme.borderSoft}`,
-      background: theme.surfaceAlt, overflow: 'hidden',
+      background: theme.surfaceAlt,
+      // 'clip', not 'hidden' — the two look identical here (just clipping the rounded
+      // corners) but 'hidden' creates an implicit scroll container, which combined with
+      // the Historique list below growing to its 10-entry cap made Chrome intermittently
+      // fail to repaint this block (present and correct in the DOM/inspector, just not
+      // painted) until a full reload. 'clip' doesn't create that scroll container and
+      // sidesteps the bug. Confirmed live in devtools before landing this.
+      overflow: 'clip',
     }}>
       <button
         onClick={() => setOpen(o => !o)}

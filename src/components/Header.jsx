@@ -14,7 +14,7 @@ export default function Header({ balance, onMenuClick }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         <span
           style={{
-            fontFamily: theme.fontDisplay, fontSize: '19px', letterSpacing: '0.02em',
+            fontFamily: theme.fontDisplay, fontSize: '30px', letterSpacing: '0.02em',
             color: theme.accent, textShadow: `1px 1px 0 ${theme.textPrimary}`,
           }}
         >

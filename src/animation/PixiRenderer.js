@@ -38,7 +38,7 @@ const HOP_THROW_PROGRESS = 0.7;
 const SHURIKEN_MS = 180;
 const CHICKEN_H   = 66 * 1.2; // display height, all poses scaled to match — +20%
 const KO_SQUASH_MS = 150;
-const BADGE_SIZE  = 46;     // multiplier disc drawn on each tile, replaces the plain lane number
+const BADGE_SIZE  = 54;     // multiplier disc drawn on each tile, replaces the plain lane number — bumped from 46 so the "x.xxx" text isn't clipped
 const TOP_CLEARANCE = CHICKEN_H + HOP_ARC + 30; // room above the road for the chicken hop + wall decor
 const REFERENCE_H     = 380; // canvas height the road/chicken/tiles were originally sized for
 const MAX_SCENE_SCALE = 1.5; // cap so the scene doesn't blow up into an unreadable zoom on very tall canvases
@@ -407,7 +407,7 @@ export class PixiRenderer {
 
     const multText = new Text({
       text: '',
-      style: { fontFamily: theme.fontBody, fontSize: 11, fontWeight: '700', fill: num(theme.textPrimary) },
+      style: { fontFamily: theme.fontBody, fontSize: 12, fontWeight: '700', fill: num(theme.textPrimary) },
     });
     multText.anchor.set(0.5);
     c.addChild(multText);

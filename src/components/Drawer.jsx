@@ -70,7 +70,13 @@ export default function Drawer({
           {history.length === 0 ? (
             <p style={{ color: theme.textMuted, fontSize: '12px' }}>Aucun tour terminé pour le moment.</p>
           ) : (
-            <div style={{ display: 'grid', gap: '6px' }}>
+            // contain:'paint' isolates this list's own compositing/paint from the rest of
+            // the drawer — without it, once the list is full (10 entries, capped in
+            // chickenStore.addHistory) Chrome intermittently fails to repaint the
+            // ProvablyFair block above it (present and correct in the DOM/inspector, just
+            // not painted) until a full reload. Confirmed by toggling this list's
+            // display:none in devtools, which made ProvablyFair reappear immediately.
+            <div style={{ display: 'grid', gap: '6px', contain: 'paint' }}>
               {history.map((entry, index) => {
                 const isBust = entry.result === 'busted';
                 return (
