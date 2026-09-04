@@ -276,11 +276,13 @@ handler par-requête joueur.
 Deux options pour livrer le jeu à l'opérateur :
 
 - **Iframe classique** (via `/game/url`) : l'opérateur charge notre URL dans une iframe.
-  Zéro changement d'architecture front — `src/components/`, `PixiRenderer.js`,
-  `useChickenGame.js` restent identiques, on ajoute juste une page d'entrée qui lit
-  `token`/`user`/`currency`/`lang` en query string au lieu de générer un `playerToken`
-  anonyme local. **C'est le chemin recommandé pour un premier ship** : minimise le risque,
-  réutilise 100% du frontend existant.
+  Quasiment zéro changement d'architecture front — `src/components/`, `PixiRenderer.js`,
+  `useChickenGame.js` restent identiques ; seul `socketClient.js` a bougé (lit `?token=`
+  en priorité sur `localStorage`, voir étape 10 plus bas), pas besoin d'une page d'entrée
+  séparée. **C'est le chemin recommandé pour un premier ship** : minimise le risque,
+  réutilise 100% du frontend existant. (`lang`/`currency`/`country` transmis par Hub88 ne
+  sont pas encore exploités côté client — pas d'i18n ni de formatage multi-devise dans
+  l'app aujourd'hui, hors scope tant qu'un seul marché est visé.)
 - **Supplier Games SDK** (pas d'iframe, notre JS chargé nativement dans la page de
   l'opérateur) : plus de contrôle pour l'opérateur (son/thème dynamiques via `sendAction`/
   `sendCustomAction`), mais demande d'exposer notre bundle en single ES module sur un CDN
@@ -361,13 +363,21 @@ nécessaire pour l'iframe classique.
    certification (RNG/RTP audité par un labo agréé — GLI, iTech Labs ou équivalent selon
    les juridictions ciblées) et leurs specs de sécurité/compliance précises, non
    publiques dans cette documentation développeur.
-10. ❌ **Pas fait — Frontend** : `useChickenGame.js`/`socketClient.js` ne savent
-    toujours lire le token que depuis `localStorage` (`chicken:playerToken`) — rien ne
-    lit encore le `?token=` que `/game/url` embarque dans l'URL de lancement (voir
-    `HUB88_LAUNCH_BASE_URL`). Tant que ce bootstrap n'existe pas côté client, tout ce qui
-    précède n'est vérifié qu'en backend pur (mock test) — **aucun test n'a encore fait
-    tourner le jeu réel dans un navigateur via ce chemin**. C'est le prochain morceau
-    concret à faire avant de pouvoir dire "l'iframe Hub88 marche".
+10. ✅ **Fait — Frontend** : `src/core/socketClient.js` lit `?token=` en priorité sur
+    `localStorage` au premier chargement (`resolveInitialToken()`), le persiste, puis
+    nettoie l'URL visible (`stripLaunchParamsFromUrl()` — un token qui donne accès à un
+    solde réel n'a rien à faire dans une barre d'adresse bookmarkable). Un reload sans
+    `?token=` retombe sur `localStorage`, donc reprend la même identité. Validé **en
+    navigateur réel** (Playwright), pas seulement en mock backend : serveur lancé avec de
+    vraies env vars `HUB88_*` pointées sur un mock wallet, appel `/game/url` signé côté
+    "Hub88", navigation sur l'URL de lancement obtenue → solde affiché **250.00 €**
+    (celui du mock wallet, pas le défaut standalone 100€) → mise de 10€ → **240.00 €** →
+    encaissement → **250.00 €**, avec les appels `/transaction/bet` puis `/transaction/win`
+    (`round_closed: true`, `reference_transaction_uuid` pointant sur le bet) observés
+    côté mock wallet exactement comme attendu. Reload sans `?token=` → solde toujours
+    250.00 € (identité reprise depuis `localStorage`). Zéro erreur console. L'iframe Hub88
+    fonctionne donc bout-en-bout contre un wallet simulé — reste seulement à le refaire
+    contre le vrai sandbox Hub88 une fois les clés échangées (étape 9).
 11. **Plateforme suivante** : répéter les étapes 1-3 et 9 (Games API + `Ledger` +
     onboarding propres à cette plateforme) — 0, 5, 8 sont déjà acquises telles quelles ;
     6-7 restent à finir une fois pour toutes les plateformes, pas par plateforme.

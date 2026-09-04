@@ -16,7 +16,41 @@ function storeToken(token) {
   try { localStorage.setItem(TOKEN_KEY, token); } catch { /* localStorage unavailable */ }
 }
 
-export const socket = io({ autoConnect: true, auth: { token: readStoredToken() } });
+// A platform launch (Hub88's /game/url, or any future aggregator — see
+// HUB88_INTEGRATION.md § Frontend) redirects the operator's iframe to us with
+// the session token as a `?token=` query param. It always wins over whatever's
+// already in localStorage: a fresh launch instruction is never stale, while
+// localStorage can be a leftover from a previous tab/session/platform. Stored
+// back into localStorage immediately so a reload on this tab still reconnects
+// with the same identity once the query string itself is gone (see below) — the
+// standalone anonymous flow (no `?token=`) is completely untouched by this,
+// `readStoredToken()` alone is exactly what ran before this existed.
+function resolveInitialToken() {
+  const fromLaunchUrl = new URLSearchParams(window.location.search).get('token');
+  if (fromLaunchUrl) {
+    storeToken(fromLaunchUrl);
+    return fromLaunchUrl;
+  }
+  return readStoredToken();
+}
+
+// Strips `?token=` (and the other launch params riding along with it) from the
+// visible URL right after reading it — the token has already been captured into
+// the socket handshake + localStorage above, and leaving a token that grants
+// access to a real-money wallet-linked session sitting in the address bar means
+// it's bookmarkable/shareable/screenshottable, which no token in this app was
+// ever meant to be.
+function stripLaunchParamsFromUrl() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('token')) return;
+  ['token', 'lang', 'demo'].forEach((key) => url.searchParams.delete(key));
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+const initialToken = resolveInitialToken();
+stripLaunchParamsFromUrl();
+
+export const socket = io({ autoConnect: true, auth: { token: initialToken } });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
