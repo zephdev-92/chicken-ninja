@@ -265,6 +265,30 @@ persisté — `accounts` est une Map en mémoire pure, tout est perdu au redéma
 faudra un log de transactions persistant (fichier ou DB) au moins pour le chemin Hub88,
 indépendamment du chemin standalone qui peut rester volatile.
 
+### Politique réseau Wallet API — ✅ Fait
+
+Distincte du cas "joueur déconnecté" (§ Décision produit plus haut) : ici, c'est **notre**
+appel sortant vers Hub88 (`walletClient.js`) qui échoue au niveau réseau (timeout,
+connexion refusée) — pas une réponse `RS_ERROR_*` métier, une réponse absente. Politique
+reprise du mapping équivalent fait pour un autre jeu du studio (CRASH-GAME/BetConstruct,
+même raisonnement transposé à Hub88), implémentée dans `walletClient.js`/`hub88Ledger.js`
+et testée dans `hub88-mock-test.js` (injection de coupure réseau via un mock configurable) :
+
+- **`bet`** : **jamais** retenté automatiquement — un retry aveugle risquerait de
+  débiter deux fois si la première tentative avait en fait atteint Hub88. À la place,
+  `debit()` tente un rollback best-effort sur le même `transaction_uuid` pour lever
+  l'ambiguïté : `RS_ERROR_TRANSACTION_DOES_NOT_EXIST` en retour confirme que le bet n'a
+  jamais atteint Hub88 (résolution normale, rien à logger en erreur) ; tout autre échec du
+  rollback de nettoyage est le vrai cas préoccupant (bet peut-être passé, impossible à
+  annuler) — loggé explicitement pour réconciliation manuelle. Dans tous les cas,
+  `startRound` échoue côté joueur (`network_error`) — le round ne peut pas être considéré
+  comme démarré tant qu'on n'a pas confirmation.
+- **`win`/`rollback`** : ce sont déjà des corrections, rejouer avec le même
+  `transaction_uuid` est sûr (idempotent — `RS_ERROR_DUPLICATE_TRANSACTION` si la première
+  tentative avait réussi). `walletClient.post()` accepte un nombre de retries en option,
+  `hub88Ledger.js` passe 2 retries (3 tentatives au total, backoff court) pour `credit`/
+  `rollback`, 0 pour `debit`.
+
 ### 4. Rate limits à respecter
 
 Deux endpoints sont limités à **1 req/min** côté Hub88 (`/freebet/prepaids/list`,

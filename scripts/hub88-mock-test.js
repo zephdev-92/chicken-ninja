@@ -89,7 +89,19 @@ function mockWallet(req, res, bodyBytes) {
   json(res, 404, { status: 'RS_ERROR_UNKNOWN' });
 }
 
+// Test-only failure injection: when > 0, the next N requests get their socket
+// destroyed instead of a response — a real connection reset/timeout, not an HTTP
+// error, so it reaches walletClient.js's fetch() `catch` exactly like an actual
+// network fault would (an HTTP 500 would be a parsed, definitive response, the
+// wrong kind of failure to simulate the "we don't know if it landed" case).
+let failNextNRequests = 0;
+
 const mockWalletServer = createServer((req, res) => {
+  if (failNextNRequests > 0) {
+    failNextNRequests--;
+    req.socket.destroy();
+    return;
+  }
   const chunks = [];
   req.on('data', (c) => chunks.push(c));
   req.on('end', () => mockWallet(req, res, Buffer.concat(chunks)));
@@ -266,6 +278,56 @@ console.log('\n── Round.abandon() — rollback only if the round never took 
       'case B (step > 0): abandon() is a no-op, balance untouched',
       walletBalances.get(token) === balanceBeforeAbandon,
     );
+  }
+}
+
+// ── Network-failure policy — retry win/rollback, best-effort rollback a bet ───
+console.log('\n── Network-failure policy (HUB88_INTEGRATION.md § Politique réseau) ──');
+{
+  const walletClient = new WalletClient({ baseUrl: walletBaseUrl, privateKeyPem: ours.privateKey });
+  const token = 'network-policy-player';
+  walletBalances.set(token, 10000000); // 100.00 EUR
+  const session = { gameCode: 'chicken_ninja', hub88Token: token, currency: 'EUR' };
+  const ledger = new Hub88Ledger(walletClient, session);
+
+  // A network fault on a bet call is ambiguous (did it land or not?) — debit()
+  // must not retry blindly (risk of double-debit) and must instead attempt a
+  // best-effort rollback of that same transaction_uuid to resolve it definitively.
+  {
+    const betTxId = randomUUID();
+    failNextNRequests = 1; // the /transaction/bet call itself never reaches the mock
+    const debitRes = await ledger.debit(10, { roundId: '1', transactionUuid: betTxId });
+    check('bet: a network fault is reported as network_error, not retried', !debitRes.ok && debitRes.error === 'network_error');
+    check('bet: balance is untouched (the mock genuinely never saw the bet)', walletBalances.get(token) === 10000000);
+    check('bet: the follow-up rollback found nothing to undo (transaction never landed)', !transactions.has(betTxId));
+
+    // Confirms the mock truly has no record of it: a fresh bet with that exact
+    // transaction_uuid is accepted as new, not rejected as a duplicate.
+    const retryRes = await ledger.debit(10, { roundId: '1', transactionUuid: betTxId });
+    check('bet: the same transaction_uuid is free to use for a real retry afterwards', retryRes.ok);
+    await ledger.rollback({ transactionUuid: betTxId }); // clean up for the next block
+  }
+
+  // A network fault on a win call is safe to retry (idempotent via
+  // transaction_uuid) — credit() must recover transparently within walletClient's
+  // built-in retries rather than surfacing the transient fault to the caller.
+  {
+    const winTxId = randomUUID();
+    failNextNRequests = 1; // only the first attempt fails, the retry reaches the mock
+    const creditRes = await ledger.credit(15, {
+      roundId: '2', transactionUuid: winTxId, referenceTransactionUuid: randomUUID(), roundClosed: true,
+    });
+    check('win: a transient network fault is recovered via retry, not surfaced', creditRes.ok && creditRes.balance === 115);
+  }
+
+  // More failures than the retry budget allows still surfaces as network_error,
+  // rather than retrying forever. hub88Ledger.js's WALLET_CORRECTION_RETRIES is 2
+  // (initial attempt + 2 retries = 3 total) — 3 consecutive faults exhausts it.
+  {
+    failNextNRequests = 3;
+    const rollbackRes = await ledger.rollback({ transactionUuid: randomUUID() });
+    check('rollback: exhausting all retries still reports network_error', !rollbackRes.ok && rollbackRes.error === 'network_error');
+    failNextNRequests = 0; // don't leak into any test added after this one
   }
 }
 

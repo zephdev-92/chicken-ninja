@@ -2,6 +2,15 @@ import { randomUUID } from 'crypto';
 import { Ledger } from '../../core/ledger.js';
 import { toHub88Amount, fromHub88Amount } from './currency.js';
 
+// Network-failure policy on top of walletClient's retry mechanism — see
+// HUB88_INTEGRATION.md § Politique réseau Wallet API. A `bet` is never retried:
+// on ambiguous outcome (we truly don't know if it landed) the safe move is a
+// best-effort rollback of that same transaction_uuid, not a second attempt that
+// could double-debit if the first one actually succeeded. `win`/`rollback` are
+// themselves corrections — retrying them is safe (idempotent via transaction_uuid)
+// and is exactly the recovery Hub88's docs describe for a transient network fault.
+const WALLET_CORRECTION_RETRIES = 2;
+
 // Hub88 aggregator platform's wallet backend — the operator (via Hub88) is
 // authoritative on the balance, not us. Every method is a real signed HTTP call
 // through `walletClient`; see server/core/ledger.js for the contract and
@@ -47,8 +56,26 @@ export class Hub88Ledger extends Ledger {
       currency:           this.session.currency,
       amount:               toHub88Amount(amount),
     });
-    if (!res.ok) return { ok: false, error: res.error };
-    return { ok: true, balance: fromHub88Amount(res.data.balance) };
+    if (res.ok) return { ok: true, balance: fromHub88Amount(res.data.balance) };
+
+    // A parsed RS_ERROR_* (insufficient balance, limit reached, ...) is a
+    // definitive answer — the balance never moved, nothing to unwind.
+    if (res.error !== 'network_error') return { ok: false, error: res.error };
+
+    // Ambiguous outcome: we don't know whether this bet actually landed on
+    // Hub88's side before the connection dropped. Best-effort rollback of the
+    // same transaction_uuid resolves it either way. 'transaction_not_found' is
+    // the *expected*, routine resolution — it means the bet genuinely never
+    // reached Hub88, nothing to undo, not a failure worth alarming on. Any other
+    // failure here is the real problem: the bet may have landed and we still
+    // couldn't undo it, which needs a human to reconcile against Hub88 directly.
+    const cleanup = await this.rollback({ transactionUuid: meta.transactionUuid });
+    if (!cleanup.ok && cleanup.error !== 'transaction_not_found') {
+      console.error(
+        `[hub88Ledger] bet ${meta.transactionUuid} failed on a network error and the follow-up rollback also failed (${cleanup.error}) — manual reconciliation may be needed.`,
+      );
+    }
+    return { ok: false, error: 'network_error' };
   }
 
   // meta: { roundId, transactionUuid, referenceTransactionUuid, roundClosed }
@@ -64,7 +91,7 @@ export class Hub88Ledger extends Ledger {
       round_closed:                  meta.roundClosed ?? true,
       currency:                        this.session.currency,
       amount:                            toHub88Amount(amount),
-    });
+    }, { retries: WALLET_CORRECTION_RETRIES });
     if (!res.ok) return { ok: false, error: res.error };
     return { ok: true, balance: fromHub88Amount(res.data.balance) };
   }
@@ -77,7 +104,7 @@ export class Hub88Ledger extends Ledger {
       ...this._baseFields(),
       transaction_uuid:            randomUUID(),
       reference_transaction_uuid: meta.transactionUuid ?? meta.referenceTransactionUuid,
-    });
+    }, { retries: WALLET_CORRECTION_RETRIES });
     if (!res.ok) return { ok: false, error: res.error };
     return { ok: true, balance: res.data.balance != null ? fromHub88Amount(res.data.balance) : undefined };
   }
