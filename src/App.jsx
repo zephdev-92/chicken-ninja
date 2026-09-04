@@ -49,12 +49,20 @@ export default function App() {
     // like before. On a desktop browser it stops stretching into an impossibly tall
     // phone and instead reads as a mockup centered in the window, like the games it's
     // inspired by: no leftover height left to show up as dead space inside the game.
-    <div style={{ position: 'fixed', inset: 0, background: theme.bgDeep, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+    <div style={{
+      position: 'fixed', inset: 0, background: theme.bgDeep,
+      display: 'flex', justifyContent: 'center', alignItems: 'center',
+      // True app root: Drawer renders as a *sibling* of the phone frame below, not a
+      // child of it, so fontFamily has to live here to reach both — putting it only on
+      // the frame div left the Drawer with no font-family anywhere in its ancestry,
+      // falling back to the browser's serif default.
+      fontFamily: theme.fontBody,
+    }}>
       <div
         style={{
           width: '100%', maxWidth: '480px', height: '100%', maxHeight: '860px',
           display: 'flex', flexDirection: 'column',
-          background: theme.bg, color: theme.textPrimary, fontFamily: theme.fontBody,
+          background: theme.bg, color: theme.textPrimary,
           overflow: 'hidden', boxShadow: '0 0 60px rgba(26,14,10,0.35)',
         }}
       >

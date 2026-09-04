@@ -30,7 +30,7 @@ export default function CashoutFeed({ feed }) {
               background: theme.successSoft, border: `1px solid ${theme.success}33`,
             }}
           >
-            <span style={{ color: theme.textMuted, fontFamily: 'monospace', fontSize: '11px' }}>#{entry.shortId}</span>
+            <span style={{ color: theme.textMuted, fontFamily: theme.fontMono, fontSize: '11px' }}>#{entry.shortId}</span>
             <span style={{ color: theme.textMuted }}>{DIFFICULTIES[entry.difficulty]?.label ?? entry.difficulty}</span>
             <span style={{ color: theme.success, fontWeight: 700 }}>{entry.multiplier.toFixed(2)}x</span>
             <span style={{ color: theme.success, fontWeight: 700 }}>+{entry.payout} €</span>

@@ -91,6 +91,13 @@ modification de cette courbe.
 ## Conventions
 
 - Style inline (`style={{...}}`) comme CRASH-GAME, pas de CSS Modules/Tailwind pour l'instant.
+  Seule exception : `src/index.css`, un reset global minimal (importé une fois dans
+  `main.jsx`) qui couvre ce que le style inline ne peut pas atteindre — `box-sizing` et
+  surtout le fait que `<button>`/`<input>`/`<select>`/`<textarea>` n'héritent pas de
+  `font-family`/`color` par défaut (feuille UA du navigateur), donc rendaient dans la
+  police système au lieu d'Inter tant que `theme.fontBody` n'était pas répété sur chaque
+  contrôle un par un. Ne pas y ajouter de styles de composant — ça reste réservé aux
+  resets globaux impossibles à faire proprement en inline.
 - Toute constante de jeu (lanes, deathChance, RTP) vit dans `src/shared/gameConfig.js`,
   jamais dupliquée côté serveur ou composant.
 - Le socket est privé par session (`socket.emit`), sauf `cashout:feed` qui est diffusé à

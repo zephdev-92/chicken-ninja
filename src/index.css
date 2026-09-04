@@ -1,0 +1,18 @@
+/* Global reset — intentionally minimal: component styling stays inline
+   (style={{...}}) per convention, see CLAUDE.md. This file only covers what
+   inline styles structurally can't reach: browser UA defaults on form
+   controls. <button>/<input>/<select>/<textarea> don't inherit font-family
+   or color from ancestors by default (their own UA stylesheet entry wins),
+   so every button/select in the app was rendering in the OS system font
+   instead of Inter no matter what App.jsx's root fontFamily said — this is
+   the one class of bug inline styles per-component can't fix without
+   repeating `fontFamily: theme.fontBody` on every single control. */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}

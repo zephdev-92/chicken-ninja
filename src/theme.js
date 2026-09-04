@@ -30,5 +30,6 @@ export const theme = {
   disabledText: '#a89070',
 
   fontBody: "'Inter', Arial, sans-serif",
-  fontDisplay: "'Bangers', 'Inter', Arial, sans-serif",
+  fontDisplay: "'Bangers', 'Inter', Arial, sans-serif", // wordmark/logo only
+  fontMono: "'JetBrains Mono', 'Courier New', monospace", // seeds/hashes/ids
 };

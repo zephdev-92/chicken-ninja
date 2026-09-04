@@ -49,7 +49,7 @@ function HashRow({ label, value }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
       <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>{label}</span>
-      <code style={{ color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+      <code style={{ color: theme.textPrimary, fontSize: '12px', fontFamily: theme.fontMono, wordBreak: 'break-all' }}>
         {short}
       </code>
       <CopyButton text={value} />
@@ -151,7 +151,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                     placeholder={clientSeed}
                     style={{
                       padding: '4px 8px', borderRadius: '7px', border: `1px solid ${theme.border}`,
-                      background: theme.surface, color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace',
+                      background: theme.surface, color: theme.textPrimary, fontSize: '12px', fontFamily: theme.fontMono,
                       width: '160px',
                     }}
                   />
@@ -170,7 +170,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                 </>
               ) : (
                 <>
-                  <code style={{ color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace' }}>
+                  <code style={{ color: theme.textPrimary, fontSize: '12px', fontFamily: theme.fontMono }}>
                     {clientSeed}
                   </code>
                   {canEditSeed && (
@@ -228,7 +228,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                   placeholder={ph}
                   style={{
                     flex: 1, padding: '5px 8px', borderRadius: '7px', border: `1px solid ${theme.border}`,
-                    background: theme.surface, color: theme.textPrimary, fontSize: '12px', fontFamily: 'monospace',
+                    background: theme.surface, color: theme.textPrimary, fontSize: '12px', fontFamily: theme.fontMono,
                   }}
                 />
               </div>
