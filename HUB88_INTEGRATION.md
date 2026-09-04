@@ -7,10 +7,14 @@ s'intègre donc côté **Supplier**, pas Operator.
 
 Sources consultées : `docs.hub88.io/developer-docs` → Fundamentals, Core API Flow, Request
 Structure, Private/Public Keys, Supplier API Overview, Wallet API, Games API, Supplier
-Games SDK, Freebets API, Rate Limits (accès le 2026-09-04). Les specs exactes de
-certification RNG/compliance ne sont pas exposées publiquement dans cette doc — à
-demander directement au contact Hub88 (BD/intégration) une fois l'onboarding commercial
-lancé.
+Games SDK, Freebets API, Rate Limits, Code Samples, Pagination (accès le 2026-09-04,
+relu deux fois) ; plus le repo GitHub officiel d'exemples
+[`coingaming/Hub88-Examples`](https://github.com/coingaming/Hub88-Examples) et sa lib
+Node.js de référence `coingaming/hm-crypto-nodejs` (voir § Échange de clés RSA), qui a
+permis une vérification cryptographique réelle et pas seulement une lecture de doc. Les
+specs exactes de certification RNG/compliance ne sont pas exposées publiquement dans
+cette doc — à demander directement au contact Hub88 (BD/intégration) une fois
+l'onboarding commercial lancé.
 
 **Cadrage multi-plateformes** : l'objectif n'est pas d'intégrer Hub88 spécifiquement mais
 plusieurs agrégateurs/opérateurs au fil du temps. Hub88 sert ici de **premier cas concret**
@@ -199,6 +203,25 @@ openssl rsa -pubout -in private.pem -out public.pem
 - La signature porte sur le corps JSON **octet pour octet** — donc sérialiser une seule
   fois, signer cette sérialisation exacte, l'envoyer telle quelle (pas de re-stringify côté
   transport qui changerait l'ordre des clés/l'espacement).
+
+**✅ Confirmé au-delà du doute** (2026-09-04) : la doc `docs.hub88.io` ne contenait aucun
+exemple de code exécutable, mais Hub88 publie un vrai repo GitHub d'exemples officiels —
+[`coingaming/Hub88-Examples`](https://github.com/coingaming/Hub88-Examples) (⚠️ pas
+`hub88io/Hub88-Examples`, qui n'existe pas — l'org GitHub réelle derrière Hub88 est
+`coingaming`). Il contient une paire de clés de démo (`priv/private.pem`+`public.pem`) et
+`signatures.csv` : des couples `donnée;signature` connus. La lib Node.js de référence
+qu'ils publient eux-mêmes (`coingaming/hm-crypto-nodejs`) signe avec exactement :
+```js
+createSign('RSA-SHA256').update(message).sign(privateKey, 'base64');
+createVerify('RSA-SHA256').update(message).verify(publicKey, signature, 'base64');
+```
+— identique à `signature.js`. Vérifié directement (pas juste comparé au code) : les 5
+couples de `signatures.csv` re-signés avec notre `signBody()` et la clé privée de démo
+Hub88 reproduisent **exactement** (byte-for-byte) la signature publiée, et `verifyBody()`
+valide chacune avec la clé publique de démo. Test permanent dans `hub88-mock-test.js`
+("Signature — Hub88's own published test vectors"). C'est la validation la plus forte
+possible sans compte Hub88 réel : pas une supposition de compatibilité, une preuve
+contre les propres données publiées par Hub88.
 
 ⚠️ **Point à vérifier avant onboarding** : la doc Games API contient la phrase "the
 signature is validated using the public key associated with the provided `operator_id`",

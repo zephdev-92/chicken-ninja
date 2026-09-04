@@ -133,6 +133,68 @@ console.log('── Signature (RSA-SHA256) ──');
   check('tampered body fails verification', !verifyBody(Buffer.from(JSON.stringify({ hello: 'WORLD' })), sig, ours.publicKey));
 }
 
+// ── Signature — Hub88's own published test vectors ─────────────────────────
+// Self-consistency (sign with our key, verify with our key) only proves
+// signature.js agrees with itself — it doesn't prove compatibility with Hub88's
+// actual crypto stack. These come straight from Hub88's own public reference
+// implementation and demo keypair (github.com/coingaming/Hub88-Examples,
+// signatures.csv + priv/*.pem; the Node reference lib, hm-crypto-nodejs, signs
+// with `createSign(digestType).update(message).sign(privateKey, 'base64')` —
+// exactly what signBody/verifyBody do). Confirmed 2026-09-04.
+console.log('\n── Signature — Hub88\'s own published test vectors (coingaming/Hub88-Examples) ──');
+{
+  const hub88DemoPrivateKey = `-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAx3IRpSri/9SjA7f9me35v6LtJzn8drb1vg/UeGaPPFR16KsU
+OPqbGJ2r1pRPJMedqqbO7Agt/HavWDcQhNZlc9VrVQcWK/w2HD9PflQYv0oQMiPK
+5Mut/eIdFOpwwwaRAU4s6WOkJdSmP9F4cfr/amTZZoY59/t3SZWYjgZ9/LDI2X8S
+3uLW/JPiH+6dm2bU8ykhxoWwLE/piJxynS73EzM0tgjHyTUMkarhK9qRVZk581/k
+zmtJLLBZQl9XrQQcIfQ+zFZj7ijddOptxpxqCmq8gQNohB56p34yjVH3uAJAaFvI
+Vg5mEkprrvNVDJwGonHSaaq7AICmzrF6h/r5dwIDAQABAoIBAFNIGIIlpGA7hE57
+N9RdANq6x9iHaBqST48rwQb9nHYOtqWPOoSIcNcYj7ase1faWsX1nZYF3F39mT52
+z9kIRZjW11jL+sAnMtkcvq77otHNtXGabJCZVHAdSROAydFGHqqy4CIcz2BUqY8g
+gvDlZF4i+nzLM82PHcKGSwuTPmyTED37RqtscSxd7cGQkuL6OnohSFpW+5tvZcGZ
+Ui4oVRrX4oVXz//3TDESRfondwQVKPoqQr7aiyYSKOJJMngIXmCvJ6p3XNiEW+dP
+uXxm5N9QRkkX00v3vPTdsuwUjt3wepDJhR9BecRERRYNJIrqsgNxkJTJEDlsGqi5
+kIKPb/ECgYEA8nKLPCfIaZ4G/7pUXQ64MMemS7qH17aU7Eb+mqDpFRt2bNr/yw12
+qIhUkb6XyI/ZwOF2gdhPzte25CuZzNsMu3GqlEQ77AR1XCyu1AY8oiJS4TSmRovJ
+x86BK8C8OY75myYcmRIvsusxviZfUCunDaexVGOqIKMRNrgJ2i8194UCgYEA0pgp
+nzxI4H/Ej+5KOmEw9P2xstIXpW+CcEDbrh5pqW+PwNP/TUxC445Rn4R8AVXFVnbH
+6DLrW35A9KBcA7Ve37vkVUILxPC+S967+gdRAd3BQTuUmi31+7cBjmNLKJMMC8Fl
+DZ5S8zwRuVrU6o3bbPUbC5gDb/cN/7GVtb/D18sCgYEA2ma+8LCxxBr8GRAkATRK
+Tn77WgqtZm/uVa5amrbLYR09IDBj7umw837kF+qGVsDnGu6/z5Ypxp3h/kccpELL
+hGuPi0KwbBtUEXWbBBqeMjwTRxYjlzdDzP9Es0JLDNq0FcROTMHqQBXI2I8+mzzH
+nvBqOSgS0JW04wMEtQyEY/UCgYBNMDKJR9paVtpf+vJABaGhGl+IcJL0MzP3Gv6q
+CkGmNdrVzZ5U4a/eoipusmuVPa/P6keJZyh254a9Yw122oKEtOSTD1sq+yZ0vpXd
+pdLeQT51P3ZPMKtpcIFkhCZnH8aZhHAalr5GouzIKG/D7OzROeGI1VXlMwNxhdCe
+xkPtEwKBgG8IJGHMuzBGDtykqPwOdz7llWwzl3GgWiEDqt6kbIEr8F7CbbnlvrhJ
+HRmd9tFEtYz2/3x9VTv9NCjd8FiWyPcivkd4dvMInfgBoCBJxw0I+nyjqQpiLuhx
+x4xyX1tFKW+sAN+Mb9dO+ZHGpcz2FpPz5uXv6oCzTG9BLcgg0mwx
+-----END RSA PRIVATE KEY-----`;
+  const hub88DemoPublicKey = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx3IRpSri/9SjA7f9me35
+v6LtJzn8drb1vg/UeGaPPFR16KsUOPqbGJ2r1pRPJMedqqbO7Agt/HavWDcQhNZl
+c9VrVQcWK/w2HD9PflQYv0oQMiPK5Mut/eIdFOpwwwaRAU4s6WOkJdSmP9F4cfr/
+amTZZoY59/t3SZWYjgZ9/LDI2X8S3uLW/JPiH+6dm2bU8ykhxoWwLE/piJxynS73
+EzM0tgjHyTUMkarhK9qRVZk581/kzmtJLLBZQl9XrQQcIfQ+zFZj7ijddOptxpxq
+Cmq8gQNohB56p34yjVH3uAJAaFvIVg5mEkprrvNVDJwGonHSaaq7AICmzrF6h/r5
+dwIDAQAB
+-----END PUBLIC KEY-----`;
+  const vectors = [
+    ['test', 'V3bEXE72v0fbrKNV6bHW945WgsuRvkKcUBA4+C2AiUp+ssrItfk4btBhQfuupBsUXY11JZY+2DSK15NlXeziZbtGQRbgq6v/Ou2tWd652r39nKCfwpxLw1foXaLiSP5ZPudi42M7ANG4XygjaErPiIMHHQaEA6WKqSLIPmJmJJ1u6PkLulpG5CEMO+/6tWRBMMd5vZuHxqc2koaCWI6a3sW+75INSPXbSAEnwVkWPIeUg+EYCdUE7RARSlT/xf5Bp37qtEGZSG7TF7198HDQjAMpC7HBY+tUXsNZwXJJpcRxRh0Pqfz7Q9LG0ikFfdQE+0gCnuLOmx0IMtLIFjVQpA=='],
+    ['example', 'KzpO4V0hQzF5QXl6VxBurWImpi1XhY0/nfezuaNJd3IE1YvIX1uRqgVcKRRLOcBVDg9uT7oQNOyuBSIYmNqc6YR3IJyWNPol0wPObBi71fpDtDxIuZmAW6CHsoKgjSlP3NPP7X4CheJW/xaVgWW2hveAcV4mXvbY2cIVywVeCE6y+LrKI+doq1sRXAx7akQsAe5aQvFNo419zme682eddwkgESDdlJY2vCQ7mFxpxrnXQ3kqefq6JuGizGwgGLaqsp79hu9rc6Bnkvevhq0LcyLZ4SnHfVnv6sxZGyPEFQLslgk/jtww+IXXna6pI0ki2nxSc4UVbFTUIBL4B3lm/A=='],
+    ['{"test":"test"}', 'LMYX772LMBO+r83MakogTLoYnUmkR5TTSCMbzbzWPQBgqakoUwjsQnGAbIvA2ZEZXKgbygEW32crr/OzkJbXJp/XSeXPg93IvlOOiaItcPZAIx2MvBh7tY2vtcNMfodlrEvvG5ySDJQWO4LD/Gv7v6dpJJEsVy7AFdT8Azix2MUGcsljIJFWclYsHjJ96OCm5z4RZeA4tp49QCMKb3AL0TZojxxPL/9vSO//o4IcGQCQ02Sw7/p1c8EogCKI9AcMA2fmcog5fy853wMoZJem+qzLtQfBNKLmmKvFE02V7AkRdPn4q7ilCFzkpmN3T5Rhmazv5JHUIvjokR9c0p/4UQ=='],
+    ['{"game_id":132,"request_uuid":"583c985f-fee6-4c0e-bbf5-308aad6265af","token":"55b7518e-b89e-11e7-81be-58404eea6d16"}', 'Kd+/B1NealiUiv/9cI/0MQuwnLiAMteKFesys/b8Koe9pVP/H7Hw54W99+q1uMGizaXj+nMIzcwerFSlSkMj94uqXHueGFvDKI4YGKqntlj7EvID1B7P+VlS/A5RN4RjghIMR3MGnsJZT43G8tAju+xJCzjzDmgS25IPVIZobabIpct87ReqxYfkqIlqgH/uKkpU0ezG25mmhMa82Umat1eu88dJDCa1NsbX9SF5gtdC+A8pYS/o87s2RWHG5VVYM8awAwxPnwZacyKIEbXS59BcAI6StUm+/sJWvSKKvR6lxCiJyQOWzG1IwN9NxBthp5AfQx23G5aDMnYDkSUsIw=='],
+    ['{"user":"3nYTOSjdlF6UTz9Ir","country":"XX","currency":"BTC","operator_id":1,"token":"cd6bd8560f3bb8f84325152101adeb45","platform":"GPL_DESKTOP","game_id":39,"lang":"en","lobby_url":"https://examplecasino.io","ip":"::ffff:10.0.0.39"}', 'bL7uNP1K3S0HG8IOC0A5Gf/Cl+Hs3YCVfA0ZrjPgGJFnOstxshCQHB7JbeBhTEDhsqd6CFj4U5xOjzselFkO1HhFrTWssB7CNiXaNmizYp2NKuZhkJcrTswVlk8z9NzAkYJfcqnXiC6lMX1X5t6/+dOX6rvLlHM7yfo9LzhVjKo1on9JMHoW8AiYcC8clKEqpyWTQ70euGXnqxRay5RVAmD1sxOlmz8VIX5irtpMOugNDIL1G3g4IgauPk8T2IfVierOFeALQrNx88Es6Dl8Bgb9ogm1W4xgL3Ve01p59DQNt0oorm0LZt/YqkWYGLL2lpd5Qb1FiX4O7+hfyPKN1Q=='],
+  ];
+  let vectorsOk = true;
+  for (const [data, expectedSig] of vectors) {
+    const bytes = Buffer.from(data, 'utf8');
+    if (!verifyBody(bytes, expectedSig, hub88DemoPublicKey)) vectorsOk = false;
+    if (signBody(bytes, hub88DemoPrivateKey) !== expectedSig) vectorsOk = false;
+  }
+  check('all 5 of Hub88\'s published vectors verify AND our signBody reproduces them byte-for-byte', vectorsOk);
+}
+
 // ── Games API — /game/url ──────────────────────────────────────────────────
 console.log('\n── Games API — /game/url ──');
 let sessionToken;
