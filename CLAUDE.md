@@ -44,10 +44,18 @@ Chicken-ninja/
 │   │   └── ledger.js          #   Interface Ledger (debit/credit/getBalance/rollback) que toute
 │   │                         #     plateforme doit satisfaire pour driver roundEngine
 │   └── platforms/
-│       └── standalone/localLedger.js  # Implémente Ledger via account.balance (mode démo actuel)
-│       # Un futur agrégateur (Hub88, ...) ajoute son propre platforms/<nom>/ avec son Ledger —
-│       # voir HUB88_INTEGRATION.md pour l'architecture complète et le piège de réentrance
-│       # rencontré en rendant Round async (garde à poser avant le premier await, pas après).
+│       ├── standalone/localLedger.js  # Implémente Ledger via account.balance (mode démo actuel)
+│       └── hub88/             # Adaptateur Hub88 — inerte tant que les env vars HUB88_* ne sont
+│           ├── signature.js   #   pas TOUTES définies (voir HUB88_INTEGRATION.md § env vars)
+│           ├── currency.js    #   RSA-SHA256 sign/verify (X-Hub88-Signature) ; conversion ×100000
+│           ├── walletClient.js #   Client HTTP signé + mapping RS_ERROR_* → vocabulaire commun
+│           ├── hub88Ledger.js  #   Implémente Ledger via walletClient (bet/win/rollback réels)
+│           ├── sessions.js      #   Map token session → { hub88Token, gameCode, currency, ... }
+│           └── gamesApi.js       #   Routeur Express : /game/url (+ /game/list), /game/round=501
+│       # voir HUB88_INTEGRATION.md pour l'architecture complète, le piège de réentrance
+│       # rencontré en rendant Round async, et l'état exact fait/pas fait de l'adaptateur Hub88
+│       # (frontend pas branché, persistance des transactions pas faite — pas encore testé
+│       # dans un vrai navigateur, seulement via npm run hub88-mock-test).
 ├── scripts/rtp-simulation.js # Monte Carlo RTP validator — npm run rtp-sim
 ├── src/
 │   ├── shared/gameConfig.js # DIFFICULTIES + maths pures (multiplicateur, HMAC message, RNG→outcome)

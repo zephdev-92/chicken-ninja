@@ -202,9 +202,10 @@ openssl rsa -pubout -in private.pem -out public.pem
 
 ### 2. Endpoints Games API à exposer (nous répondons à Hub88)
 
-Base : `https://{notre-base-url}/supplier/...` (à confirmer avec Hub88 lors de
-l'onboarding — l'exemple doc est `api2.hub88.io/operator/generic/v2/...` côté eux, notre
-préfixe à nous sera négocié).
+Implémenté sous `/hub88/supplier/generic/v2/...` (`server/platforms/hub88/gamesApi.js`,
+monté dans `server/index.js`) — préfixe choisi arbitrairement en attendant la vraie base
+URL négociée avec Hub88 à l'onboarding (l'exemple de leur doc est
+`api2.hub88.io/operator/generic/v2/...` côté eux ; la nôtre reste à confirmer).
 
 | Endpoint | Rôle | Champs clés |
 |---|---|---|
@@ -308,46 +309,101 @@ nécessaire pour l'iframe classique.
    - Validé : `npm run lint`, `npm run concurrency-test` (0 violation après le fix de
      réentrance décrit ci-dessus), `npm run rtp-sim` (tous les spot-checks dans leur IC
      95%) tous verts.
-1. **Signature RSA** : générer la paire de clés, ajouter
-   `server/platforms/hub88/signature.js` (sign sortant Wallet API, verify entrant Games
-   API).
-2. **Endpoints Games API** (nouveau routeur Express,
-   `server/platforms/hub88/gamesApi.js`, monté à côté du serveur Socket.IO existant dans
-   `server/index.js`) : `/game/url`, `/game/round`, `/game/list`. `/game/url` mint un
-   token de session Hub88 (distinct du token anonyme standalone) que le client réutilise
-   pour ouvrir sa connexion Socket.IO exactement comme aujourd'hui — même handshake
-   `auth: { token }`, juste une autre source d'émission.
-3. **`hub88Ledger.js`** (implémente `Ledger`) : `getBalance`/`debit`/`credit`/`rollback`
-   appellent `/user/balance`, `/transaction/bet`, `/transaction/win`,
-   `/transaction/rollback`, avec retry/backoff raisonnable et mapping des `RS_ERROR_*`
-   vers le vocabulaire d'erreur commun (`insufficient_balance`, etc.).
-4. **Brancher** : au moment où la connexion Socket.IO s'ouvre, choisir
-   `new LocalLedger(account)` ou `new Hub88Ledger(session)` selon que le token présenté
-   est un token anonyme local ou un token Hub88 — c'est la **seule** branche
-   plateforme-dépendante dans `server/index.js`, tout `roundEngine.js` en aval est
-   partagé sans condition.
-5. **Conversion de devise** : wrapper `toHub88Amount(x) = Math.round(x * 100000)` /
-   `fromHub88Amount(x) = x / 100000`, utilisé uniquement dans `hub88Ledger.js`, jamais
-   dans `gameConfig.js`/`roundEngine.js`.
-6. **Rollback sur échec** : si `bet` réussit côté Hub88 mais que la partie ne peut pas
-   démarrer (déconnexion socket avant le premier `round:step`, crash serveur), appeler
-   `ledger.rollback(meta)` — sinon le joueur reste débité sans round valide.
-7. **Persistance minimale des transactions** (mode Hub88 seulement) : au moins un log
-   append-only (`transaction_uuid`, `round`, montant, statut) conservé 4+ mois — pas
-   besoin d'une vraie DB pour démarrer, un fichier JSONL suffit en MVP.
-8. **Tests** : étendre `scripts/concurrency-test.js` avec un scénario "Hub88 wallet
-   simulé" (mock des endpoints Wallet API, ou directement un `Ledger` de test conforme au
-   contrat) pour vérifier idempotence (`transaction_uuid` rejoué) et rollback, en plus de
-   ce qui existe déjà pour le mode standalone. `npm run rtp-sim` n'a besoin d'aucun
-   changement — le moteur de jeu est inchangé.
-9. **Onboarding commercial Hub88** : demander à Hub88 leurs exigences de certification
-   (RNG/RTP audité par un labo agréé — GLI, iTech Labs ou équivalent selon les
-   juridictions ciblées) et leurs specs de sécurité/compliance précises, non publiques
-   dans cette documentation développeur — ce n'est pas quelque chose qu'on peut déduire de
-   la doc technique seule.
-10. **Plateforme suivante** : répéter uniquement les étapes 1-3 et 9 (Games API +
-    `Ledger` + onboarding propres à cette plateforme) — les étapes 0, 5-8 sont déjà
-    acquises et ne se refont pas.
+1. ✅ **Fait — Signature RSA** : `server/platforms/hub88/signature.js`
+   (`signBody`/`verifyBody`, RSA-SHA256, BASE64), plus `generateDevKeyPair()` — un
+   helper de dev **uniquement** pour exercer le code avant d'avoir de vraies clés
+   échangées avec Hub88 (jamais utilisé pour du vrai trafic).
+2. **Partiel — Endpoints Games API** (`server/platforms/hub88/gamesApi.js`, monté sur
+   `app` dans `server/index.js` sous `/hub88/supplier/generic/v2` — seulement si les
+   variables d'env `HUB88_*` sont toutes présentes, sinon totalement absent des routes) :
+   - ✅ `/game/url` : vérifie la signature (clé publique Hub88), rejette `game_code`
+     inconnu, mint un token de session interne (`sessions.js`) qui garde à part le
+     `hub88Token` du joueur (celui que la Wallet API attend) — jamais confondu avec
+     notre propre clé de session, voir le commentaire dans `sessions.js` sur ce piège.
+     Gère le mode DEMO (`user`/`token` absents ou `currency: "XXX"`) en réutilisant
+     directement `LocalLedger` — une session démo n'appelle jamais la vraie Wallet API.
+   - ✅ `/game/list` : retourne le seul jeu (`game_code` configuré).
+   - ❌ `/game/round` : renvoie `501 not_implemented` — bloqué sur l'absence de
+     persistance des transactions (étape 7 plus bas), répondre honnêtement plutôt que
+     fabriquer une URL.
+3. ✅ **Fait — `hub88Ledger.js`** (implémente `Ledger`) : `getBalance`/`debit`/`credit`/
+   `rollback` via `walletClient.js` (signature sortante, mapping `RS_ERROR_*` →
+   vocabulaire commun). Pas de retry/backoff au-delà d'une tentative unique + erreur
+   `network_error` explicite — à durcir avant la prod si Hub88 recommande une politique
+   de retry spécifique à l'onboarding.
+4. ✅ **Fait — Brancher** : dans `server/index.js`, chaque connexion Socket.IO résout
+   `getHub88Session(token)` ; trouvé → `Hub88Ledger` (ou `LocalLedger` si la session est
+   DEMO) ; sinon → le chemin anonyme standalone existant. C'est la seule branche
+   plateforme-dépendante, tout `roundEngine.js` en aval est partagé sans condition.
+5. ✅ **Fait — Conversion de devise** : `server/platforms/hub88/currency.js`
+   (`toHub88Amount`/`fromHub88Amount`, ×100000), utilisé uniquement dans
+   `hub88Ledger.js`.
+6. **Partiel — Rollback** : `Ledger.rollback` est implémenté et testé au niveau
+   `hub88Ledger.js`/`walletClient.js` (voir `hub88-mock-test.js`), mais **rien ne
+   l'appelle encore** dans `server/index.js`. Raison : le déclencheur documenté
+   ("le round ne peut pas démarrer — déconnexion avant le premier `round:step`") est en
+   réalité une question produit non tranchée pour ce jeu précis, pas juste un branchement
+   technique — voir "Décision produit ouverte" ci-dessous. Ne pas câbler ça sans réponse,
+   au risque d'un mauvais choix (ex. laisser un joueur annuler sa mise en fermant l'onglet
+   pile après un mauvais tirage).
+7. ❌ **Pas fait — Persistance minimale des transactions** (mode Hub88 seulement) : log
+   append-only (`transaction_uuid`, `round`, montant, statut) conservé 4+ mois. Bloque
+   `/game/round` (étape 2) en plus d'être une exigence de conformité en soi.
+8. ✅ **Fait — Tests** : `scripts/hub88-mock-test.js` (`npm run hub88-mock-test`) — mock
+   in-process de la Wallet API + signature simulée côté "Hub88" pour exercer
+   `signature.js`, `gamesApi.js` (`/game/url`, rejet signature invalide, rejet mauvais
+   `game_code`) et `hub88Ledger.js` (debit/credit/rollback, idempotence sur
+   `transaction_uuid` rejoué, solde insuffisant) de bout en bout sans réseau réel. 18/18
+   assertions vertes. `concurrency-test.js`/`rtp-sim` restent inchangés et toujours verts
+   (le chemin standalone est totalement inerte tant que les env vars `HUB88_*` ne sont
+   pas toutes définies).
+9. ❌ **Pas fait — Onboarding commercial Hub88** : demander à Hub88 leurs exigences de
+   certification (RNG/RTP audité par un labo agréé — GLI, iTech Labs ou équivalent selon
+   les juridictions ciblées) et leurs specs de sécurité/compliance précises, non
+   publiques dans cette documentation développeur.
+10. ❌ **Pas fait — Frontend** : `useChickenGame.js`/`socketClient.js` ne savent
+    toujours lire le token que depuis `localStorage` (`chicken:playerToken`) — rien ne
+    lit encore le `?token=` que `/game/url` embarque dans l'URL de lancement (voir
+    `HUB88_LAUNCH_BASE_URL`). Tant que ce bootstrap n'existe pas côté client, tout ce qui
+    précède n'est vérifié qu'en backend pur (mock test) — **aucun test n'a encore fait
+    tourner le jeu réel dans un navigateur via ce chemin**. C'est le prochain morceau
+    concret à faire avant de pouvoir dire "l'iframe Hub88 marche".
+11. **Plateforme suivante** : répéter les étapes 1-3 et 9 (Games API + `Ledger` +
+    onboarding propres à cette plateforme) — 0, 5, 8 sont déjà acquises telles quelles ;
+    6-7 restent à finir une fois pour toutes les plateformes, pas par plateforme.
+
+**Décision produit ouverte (bloque l'étape 6)** : que doit-il se passer si un joueur
+lancé depuis Hub88 perd sa connexion socket pendant un round actif (mise déjà débitée,
+aucun cashout envoyé) ? Trois options, aucune évidente sans trancher côté produit :
+(a) forfait silencieux — comportement actuel du mode standalone, mais potentiellement
+non conforme aux attentes d'un agrégateur sur le traitement des rounds interrompus ;
+(b) rollback automatique du bet — rembourse le joueur, mais ouvre une façon de se
+soustraire à un tirage déjà engagé en coupant la connexion au bon moment ; (c) reprise de
+session — nécessite de persister l'état du `Round` en cours (pas seulement le
+`transaction_uuid`) pour le réhydrater à la reconnexion, fonctionnalité qui n'existe pas
+du tout aujourd'hui, y compris côté standalone. À trancher avant d'écrire le code de
+l'étape 6.
+
+### Variables d'environnement (activation Hub88)
+
+`server/index.js` ne monte le routeur Games API et n'active jamais le chemin Hub88 que si
+**toutes** ces variables sont présentes — absentes, le comportement standalone est
+strictement celui d'avant (c'est ce que vérifient `concurrency-test`/`rtp-sim`, qui ne les
+définissent pas) :
+
+| Variable | Rôle |
+|---|---|
+| `HUB88_PRIVATE_KEY` | Notre clé privée RSA (PEM) — signe les appels sortants vers la Wallet API |
+| `HUB88_REMOTE_PUBLIC_KEY` | Clé publique RSA de Hub88 (PEM) — vérifie les appels entrants sur la Games API |
+| `HUB88_WALLET_BASE_URL` | Base URL de la Wallet API Hub88 (ex. `https://api.hub88.io/supplier/generic/v2`) |
+| `HUB88_GAME_CODE` | `game_code` attribué par Hub88 pour Chicken Ninja |
+| `HUB88_GAME_NAME` | Nom affiché dans `/game/list` (défaut : `"Chicken Ninja"`) |
+| `HUB88_LAUNCH_BASE_URL` | URL du frontend réel où `/game/url` redirige (le build Vite en prod) |
+
+Aucune valeur par défaut n'est fournie pour les clés/URL — pas de placeholder qui
+ressemblerait à une vraie config par accident. `server/platforms/hub88/signature.js`
+exporte `generateDevKeyPair()` pour générer une paire de clés éphémère en local, utile
+uniquement pour rejouer `npm run hub88-mock-test` ou développer sans attendre l'onboarding.
 
 ## Ce qui ne change pas
 

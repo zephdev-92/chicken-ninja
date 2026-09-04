@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "rtp-sim": "node scripts/rtp-simulation.js",
-    "concurrency-test": "node scripts/concurrency-test.js"
+    "concurrency-test": "node scripts/concurrency-test.js",
+    "hub88-mock-test": "node scripts/hub88-mock-test.js"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -4,6 +4,10 @@ import { Server } from 'socket.io';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { Round } from './core/roundEngine.js';
 import { LocalLedger } from './platforms/standalone/localLedger.js';
+import { createGamesApiRouter } from './platforms/hub88/gamesApi.js';
+import { WalletClient } from './platforms/hub88/walletClient.js';
+import { Hub88Ledger } from './platforms/hub88/hub88Ledger.js';
+import { getHub88Session } from './platforms/hub88/sessions.js';
 
 const app        = express();
 const httpServer = createServer(app);
@@ -11,6 +15,34 @@ const io         = new Server(httpServer, { cors: { origin: '*' } });
 
 const DEFAULT_BALANCE = 100;
 const DEFAULT_WALLET  = 1000;
+
+// ── Hub88 platform wiring — inert unless every required env var is set, so the
+// standalone product (and its tests) are completely unaffected by default. Real
+// values only exist once Hub88 onboarding is done — see HUB88_INTEGRATION.md.
+const hub88Config = (() => {
+  const {
+    HUB88_PRIVATE_KEY, HUB88_REMOTE_PUBLIC_KEY, HUB88_WALLET_BASE_URL,
+    HUB88_GAME_CODE, HUB88_GAME_NAME, HUB88_LAUNCH_BASE_URL,
+  } = process.env;
+  if (!HUB88_PRIVATE_KEY || !HUB88_REMOTE_PUBLIC_KEY || !HUB88_WALLET_BASE_URL
+    || !HUB88_GAME_CODE || !HUB88_LAUNCH_BASE_URL) {
+    return null;
+  }
+  return {
+    walletClient: new WalletClient({ baseUrl: HUB88_WALLET_BASE_URL, privateKeyPem: HUB88_PRIVATE_KEY }),
+    gamesApiRouter: createGamesApiRouter({
+      hub88PublicKeyPem: HUB88_REMOTE_PUBLIC_KEY,
+      gameCode:            HUB88_GAME_CODE,
+      gameName:              HUB88_GAME_NAME || 'Chicken Ninja',
+      launchBaseUrl:           HUB88_LAUNCH_BASE_URL,
+    }),
+  };
+})();
+
+if (hub88Config) {
+  app.use('/hub88/supplier/generic/v2', hub88Config.gamesApiRouter);
+  console.log('[server] Hub88 Games API mounted at /hub88/supplier/generic/v2');
+}
 
 // ── Player identity — anonymous, signed, in-memory ────────────────────────────
 // The signing secret lives only for the life of this process: a server restart
@@ -81,20 +113,42 @@ function getOrCreateAccount(playerId) {
 io.on('connection', async (socket) => {
   console.log('[server] connected:', socket.id);
 
-  // Resolve (or mint) the anonymous player identity for this connection —
-  // never trust a client-supplied playerId without re-checking its signature.
   const presentedToken = socket.handshake.auth?.token;
-  const verifiedId      = verifyToken(presentedToken);
-  const playerId        = verifiedId ?? randomBytes(16).toString('hex');
-  const token            = verifiedId ? presentedToken : `${playerId}.${signPlayerId(playerId)}`;
-  const account          = getOrCreateAccount(playerId);
-  // The platform-agnostic round engine (server/core/roundEngine.js), driven here
-  // by the standalone Ledger. Swapping LocalLedger for an aggregator's Ledger
-  // (Hub88, ...) is the only thing a new platform needs to change at this layer —
-  // see HUB88_INTEGRATION.md.
-  const round             = new Round(new LocalLedger(account));
 
-  const syncState = async () => ({ token, wallet: account.wallet, ...(await round.state()) });
+  // A token minted by /game/url (see platforms/hub88/gamesApi.js) resolves to a
+  // Hub88 session — that's the only signal distinguishing a Hub88-launched socket
+  // from a standalone one; both speak the exact same Socket.IO protocol from here
+  // on, see HUB88_INTEGRATION.md § Ce qui reste commun à toutes les plateformes.
+  const hub88Session = hub88Config ? getHub88Session(presentedToken) : null;
+
+  // `account` stays null on the Hub88 real-money path — there's no local
+  // wallet/reserve to speak of, the operator's Wallet API is the only truth (see
+  // Hub88Ledger). It's only used below to gate wallet:deposit/withdraw, which are
+  // a standalone-only concept.
+  let token, account, ledger;
+
+  if (hub88Session) {
+    token = hub88Session.token;
+    // DEMO mode never touches the real Wallet API (Core API Flow doc) — it gets
+    // exactly the standalone experience (fake balance) under a Hub88-issued token.
+    ledger = hub88Session.isDemo
+      ? new LocalLedger(new PlayerAccount())
+      : new Hub88Ledger(hub88Config.walletClient, hub88Session);
+  } else {
+    // Resolve (or mint) the anonymous player identity for this connection —
+    // never trust a client-supplied playerId without re-checking its signature.
+    const verifiedId = verifyToken(presentedToken);
+    const playerId    = verifiedId ?? randomBytes(16).toString('hex');
+    token              = verifiedId ? presentedToken : `${playerId}.${signPlayerId(playerId)}`;
+    account             = getOrCreateAccount(playerId);
+    ledger               = new LocalLedger(account);
+  }
+
+  // The platform-agnostic round engine (server/core/roundEngine.js) — the only
+  // thing that changed above between platforms is which Ledger drives it.
+  const round = new Round(ledger);
+
+  const syncState = async () => ({ token, wallet: account?.wallet ?? null, ...(await round.state()) });
 
   socket.emit('session:sync', await syncState());
 
@@ -136,13 +190,18 @@ io.on('connection', async (socket) => {
     });
   });
 
+  // Wallet reserve transfers are a standalone-only concept — no `account` exists
+  // on a real-money Hub88 session (the operator's wallet IS the balance, nothing
+  // to transfer from on our side). See PlayerAccount / HUB88_INTEGRATION.md.
   socket.on('wallet:deposit', ({ amount }) => {
+    if (!account) { socket.emit('server:error', { code: 'wallet_not_available' }); return; }
     const { data, error } = account.deposit(amount);
     if (error) { socket.emit('server:error', { code: error }); return; }
     socket.emit('wallet:sync', data);
   });
 
   socket.on('wallet:withdraw', ({ amount }) => {
+    if (!account) { socket.emit('server:error', { code: 'wallet_not_available' }); return; }
     const { data, error } = account.withdraw(amount);
     if (error) { socket.emit('server:error', { code: error }); return; }
     socket.emit('wallet:sync', data);
