@@ -13,6 +13,8 @@ import { WalletClient } from '../server/platforms/hub88/walletClient.js';
 import { Hub88Ledger } from '../server/platforms/hub88/hub88Ledger.js';
 import { createGamesApiRouter } from '../server/platforms/hub88/gamesApi.js';
 import { getHub88Session } from '../server/platforms/hub88/sessions.js';
+import { fromHub88Amount } from '../server/platforms/hub88/currency.js';
+import { Round } from '../server/core/roundEngine.js';
 
 let passed = 0, failed = 0;
 function check(label, cond) {
@@ -33,8 +35,11 @@ const theirs = generateDevKeyPair();
 // Verifies every request with OUR public key (what we'd register with Hub88),
 // keeps a fake balance per player token, rejects a replayed transaction_uuid —
 // same contract walletClient.js/hub88Ledger.js are written against.
-const walletBalances    = new Map(); // hub88Token -> balance, Hub88 amount units (×100000)
-const seenTransactions   = new Set();
+const walletBalances = new Map(); // hub88Token -> balance, Hub88 amount units (×100000)
+// transaction_uuid -> { type: 'bet'|'win', amount, token, rolledBack } — full enough to
+// actually undo a bet on rollback (refund) rather than just acknowledging it, which
+// would leave Round.abandon()'s effect on the balance untested.
+const transactions = new Map();
 
 function mockWallet(req, res, bodyBytes) {
   const signature = req.headers['x-hub88-signature'];
@@ -48,29 +53,37 @@ function mockWallet(req, res, bodyBytes) {
   }
 
   if (req.url === '/transaction/bet') {
-    if (seenTransactions.has(body.transaction_uuid)) {
+    if (transactions.has(body.transaction_uuid)) {
       return json(res, 200, { status: 'RS_ERROR_DUPLICATE_TRANSACTION' });
     }
     const balance = walletBalances.get(body.token) ?? 0;
     if (body.amount > balance) return json(res, 200, { status: 'RS_ERROR_NOT_ENOUGH_MONEY' });
-    seenTransactions.add(body.transaction_uuid);
+    transactions.set(body.transaction_uuid, { type: 'bet', amount: body.amount, token: body.token, rolledBack: false });
     const next = balance - body.amount;
     walletBalances.set(body.token, next);
     return json(res, 200, { status: 'RS_OK', balance: next });
   }
 
   if (req.url === '/transaction/win') {
-    if (seenTransactions.has(body.transaction_uuid)) {
+    if (transactions.has(body.transaction_uuid)) {
       return json(res, 200, { status: 'RS_ERROR_DUPLICATE_TRANSACTION' });
     }
-    seenTransactions.add(body.transaction_uuid);
+    transactions.set(body.transaction_uuid, { type: 'win', amount: body.amount, token: body.token, rolledBack: false });
     const next = (walletBalances.get(body.token) ?? 0) + body.amount;
     walletBalances.set(body.token, next);
     return json(res, 200, { status: 'RS_OK', balance: next });
   }
 
   if (req.url === '/transaction/rollback') {
-    return json(res, 200, { status: 'RS_OK', balance: walletBalances.get(body.token) ?? 0 });
+    const ref = transactions.get(body.reference_transaction_uuid);
+    if (!ref) return json(res, 200, { status: 'RS_ERROR_TRANSACTION_DOES_NOT_EXIST' });
+    if (ref.rolledBack) return json(res, 200, { status: 'RS_ERROR_DUPLICATE_TRANSACTION' });
+    ref.rolledBack = true;
+    // Undo a bet by refunding it, undo a win by taking it back.
+    const delta = ref.type === 'bet' ? ref.amount : -ref.amount;
+    const next = (walletBalances.get(ref.token) ?? 0) + delta;
+    walletBalances.set(ref.token, next);
+    return json(res, 200, { status: 'RS_OK', balance: next });
   }
 
   json(res, 404, { status: 'RS_ERROR_UNKNOWN' });
@@ -199,7 +212,61 @@ console.log('\n── Hub88Ledger — debit/credit/rollback against the mock wal
   );
 
   const rollbackRes = await ledger.rollback({ transactionUuid: betTxId });
-  check('rollback is acknowledged', rollbackRes.ok);
+  check('rollback refunds the bet and returns the new balance', rollbackRes.ok && rollbackRes.balance === 125);
+
+  const dupRollbackRes = await ledger.rollback({ transactionUuid: betTxId });
+  check(
+    'rolling back the same transaction twice is rejected as a duplicate',
+    !dupRollbackRes.ok && dupRollbackRes.error === 'duplicate_transaction',
+  );
+
+  const ghostRollbackRes = await ledger.rollback({ transactionUuid: randomUUID() });
+  check(
+    'rolling back an unknown transaction is rejected as transaction_not_found',
+    !ghostRollbackRes.ok && ghostRollbackRes.error === 'transaction_not_found',
+  );
+}
+
+// ── Round.abandon() — narrow rollback-only-if-step-0 policy ───────────────────
+console.log('\n── Round.abandon() — rollback only if the round never took a step ──');
+{
+  const walletClient = new WalletClient({ baseUrl: walletBaseUrl, privateKeyPem: ours.privateKey });
+
+  // Case A: bet placed, no step taken — abandon() must roll it back.
+  {
+    const token = 'abandon-case-a';
+    walletBalances.set(token, 10000000); // 100.00 EUR
+    const session = { gameCode: 'chicken_ninja', hub88Token: token, currency: 'EUR' };
+    const round = new Round(new Hub88Ledger(walletClient, session));
+
+    const { error } = await round.startRound(10, 'easy');
+    check('case A: startRound succeeds', !error);
+
+    await round.abandon();
+    check('case A (step 0): abandon() rolls back the bet, balance restored to 100.00 EUR', fromHub88Amount(walletBalances.get(token)) === 100);
+    check('case A: round status reverts to idle after rollback', round.status === 'idle');
+  }
+
+  // Case B: bet placed, at least one step taken — abandon() must be a no-op.
+  // Whatever step_() resolves to (safe → status stays 'active' with step 1, or
+  // bust → status moves to 'busted'), one of abandon()'s two guard conditions
+  // (status !== 'active' or step !== 0) is already true either way.
+  {
+    const token = 'abandon-case-b';
+    walletBalances.set(token, 10000000);
+    const session = { gameCode: 'chicken_ninja', hub88Token: token, currency: 'EUR' };
+    const round = new Round(new Hub88Ledger(walletClient, session));
+
+    await round.startRound(10, 'easy');
+    await round.step_();
+    const balanceBeforeAbandon = walletBalances.get(token);
+
+    await round.abandon();
+    check(
+      'case B (step > 0): abandon() is a no-op, balance untouched',
+      walletBalances.get(token) === balanceBeforeAbandon,
+    );
+  }
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);

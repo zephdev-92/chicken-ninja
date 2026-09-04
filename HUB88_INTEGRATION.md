@@ -340,14 +340,18 @@ nécessaire pour l'iframe classique.
 5. ✅ **Fait — Conversion de devise** : `server/platforms/hub88/currency.js`
    (`toHub88Amount`/`fromHub88Amount`, ×100000), utilisé uniquement dans
    `hub88Ledger.js`.
-6. **Partiel — Rollback** : `Ledger.rollback` est implémenté et testé au niveau
-   `hub88Ledger.js`/`walletClient.js` (voir `hub88-mock-test.js`), mais **rien ne
-   l'appelle encore** dans `server/index.js`. Raison : le déclencheur documenté
-   ("le round ne peut pas démarrer — déconnexion avant le premier `round:step`") est en
-   réalité une question produit non tranchée pour ce jeu précis, pas juste un branchement
-   technique — voir "Décision produit ouverte" ci-dessous. Ne pas câbler ça sans réponse,
-   au risque d'un mauvais choix (ex. laisser un joueur annuler sa mise en fermant l'onglet
-   pile après un mauvais tirage).
+6. ✅ **Fait — Rollback** : décision produit tranchée (voir ci-dessous) — rollback
+   **uniquement** si le round est `active` avec `step === 0` (mise posée, aucun pas
+   encore tenté). Implémenté dans `Round.abandon()` (`roundEngine.js`), appelé depuis
+   `socket.on('disconnect', ...)` dans `server/index.js`. Au-delà de `step === 0`, le
+   round est forfait — comportement standalone inchangé. Aucune branche
+   plateforme-dépendante : `abandon()` appelle `this.ledger.rollback(...)` sans savoir
+   si c'est `LocalLedger` (no-op) ou `Hub88Ledger` (vrai appel signé). Testé dans
+   `hub88-mock-test.js` : cas A (step 0) → solde effectivement remboursé côté mock
+   wallet ; cas B (step > 0, safe ou bust) → `abandon()` ne fait rien, solde inchangé.
+   Le mock wallet a dû être étoffé pour créditer réellement au rollback (il se
+   contentait avant de renvoyer `RS_OK` sans bouger le solde) — sinon ce test n'aurait
+   rien vérifié de plus qu'un HTTP 200.
 7. ❌ **Pas fait — Persistance minimale des transactions** (mode Hub88 seulement) : log
    append-only (`transaction_uuid`, `round`, montant, statut) conservé 4+ mois. Bloque
    `/game/round` (étape 2) en plus d'être une exigence de conformité en soi.
@@ -379,20 +383,21 @@ nécessaire pour l'iframe classique.
     fonctionne donc bout-en-bout contre un wallet simulé — reste seulement à le refaire
     contre le vrai sandbox Hub88 une fois les clés échangées (étape 9).
 11. **Plateforme suivante** : répéter les étapes 1-3 et 9 (Games API + `Ledger` +
-    onboarding propres à cette plateforme) — 0, 5, 8 sont déjà acquises telles quelles ;
-    6-7 restent à finir une fois pour toutes les plateformes, pas par plateforme.
+    onboarding propres à cette plateforme) — 0, 5, 6, 8, 10 sont déjà acquises telles
+    quelles ; 7 reste à finir une fois pour toutes les plateformes, pas par plateforme.
 
-**Décision produit ouverte (bloque l'étape 6)** : que doit-il se passer si un joueur
-lancé depuis Hub88 perd sa connexion socket pendant un round actif (mise déjà débitée,
-aucun cashout envoyé) ? Trois options, aucune évidente sans trancher côté produit :
-(a) forfait silencieux — comportement actuel du mode standalone, mais potentiellement
-non conforme aux attentes d'un agrégateur sur le traitement des rounds interrompus ;
-(b) rollback automatique du bet — rembourse le joueur, mais ouvre une façon de se
-soustraire à un tirage déjà engagé en coupant la connexion au bon moment ; (c) reprise de
-session — nécessite de persister l'état du `Round` en cours (pas seulement le
-`transaction_uuid`) pour le réhydrater à la reconnexion, fonctionnalité qui n'existe pas
-du tout aujourd'hui, y compris côté standalone. À trancher avant d'écrire le code de
-l'étape 6.
+**Décision produit tranchée (2026-09-04)** : que doit-il se passer si un joueur lancé
+depuis Hub88 perd sa connexion socket pendant un round actif (mise déjà débitée) ? Trois
+options envisagées — (a) forfait silencieux partout (comportement standalone actuel,
+mais potentiellement non conforme aux attentes d'un agrégateur), (b) rollback automatique
+partout (rembourse, mais ouvre une façon de se soustraire à un tirage déjà engagé en
+coupant la connexion au bon moment), (c) reprise de session (le plus correct pour le
+joueur, mais demande de persister l'état du `Round` en cours — une fonctionnalité qui
+n'existe pas du tout aujourd'hui, y compris côté standalone, chantier à part entière).
+**Retenu : (b) restreint strictement à `step === 0`, (a) pour tout le reste.** Aucun
+résultat n'a encore été risqué avant le premier `round:step`, donc rien à "dodger" en
+coupant la connexion à ce stade précis — au-delà, forfait, sans changement de
+comportement. (c) reste une amélioration future, pas un prérequis pour activer Hub88.
 
 ### Variables d'environnement (activation Hub88)
 

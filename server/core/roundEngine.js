@@ -186,4 +186,20 @@ export class Round {
     this.clientSeed = clean;
     return true;
   }
+
+  // Called when the transport disappears (socket disconnect) while a round might
+  // still be in flight. Deliberately narrow: only rolls back the bet if literally
+  // nothing has been risked yet (no step taken). Rolling back a round that's
+  // already had at least one step would let a player dodge a result they don't
+  // like by disconnecting right after it lands — see HUB88_INTEGRATION.md
+  // § Décision produit for the full reasoning. Any round beyond step 0 forfeits
+  // its bet on disconnect, exactly like it always has.
+  async abandon() {
+    if (this.status !== 'active' || this.step !== 0) return;
+    const { ok } = await this.ledger.rollback({
+      transactionUuid: this.lastBetTransactionUuid,
+      referenceTransactionUuid: this.lastBetTransactionUuid,
+    });
+    if (ok) this.status = 'idle';
+  }
 }

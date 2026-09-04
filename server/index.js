@@ -213,8 +213,17 @@ io.on('connection', async (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     console.log('[server] disconnected:', socket.id);
+    // Only unwinds a bet that hasn't risked anything yet (status active, step 0)
+    // — see Round.abandon() in roundEngine.js. Anything further along forfeits,
+    // same as always; the socket is gone either way, nothing more can happen on
+    // this Round instance after this.
+    try {
+      await round.abandon();
+    } catch (err) {
+      console.error('[server] round.abandon() failed:', err);
+    }
   });
 });
 
