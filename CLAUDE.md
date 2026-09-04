@@ -35,7 +35,19 @@ npm run dev
 
 ```
 Chicken-ninja/
-├── server/index.js          # Express + Socket.IO, une PlayerSession par socket
+├── server/
+│   ├── index.js              # Express + Socket.IO ; identité anonyme signée, PlayerAccount
+│   │                         #   (balance/wallet standalone) ; câble Round+LocalLedger par socket
+│   ├── core/
+│   │   ├── roundEngine.js    #   Round : state machine du round + HMAC — plateforme-agnostique,
+│   │   │                     #     ne touche jamais un solde directement (voir ledger.js)
+│   │   └── ledger.js          #   Interface Ledger (debit/credit/getBalance/rollback) que toute
+│   │                         #     plateforme doit satisfaire pour driver roundEngine
+│   └── platforms/
+│       └── standalone/localLedger.js  # Implémente Ledger via account.balance (mode démo actuel)
+│       # Un futur agrégateur (Hub88, ...) ajoute son propre platforms/<nom>/ avec son Ledger —
+│       # voir HUB88_INTEGRATION.md pour l'architecture complète et le piège de réentrance
+│       # rencontré en rendant Round async (garde à poser avant le premier await, pas après).
 ├── scripts/rtp-simulation.js # Monte Carlo RTP validator — npm run rtp-sim
 ├── src/
 │   ├── shared/gameConfig.js # DIFFICULTIES + maths pures (multiplicateur, HMAC message, RNG→outcome)
@@ -185,14 +197,18 @@ renvoyées au client via le payload de l'événement concerné (`round:started.b
 `round:cashout.balance`, `wallet:sync`), jamais recalculées côté client. Limitations
 acceptées : pas de vrai compte (vider `localStorage` recrée un compte par défaut), solde
 perdu au redémarrage serveur — un vrai système d'auth (Supabase) resterait à faire pour
-lever ces limites. Multi-onglets sur le même token : chaque socket a sa propre
-`PlayerSession` (round/step/status) mais partage le même `PlayerAccount` (balance/wallet) —
-donc deux onglets peuvent avoir chacun un tour actif en parallèle sur le même solde, comme
-deux joueurs distincts. Vérifié empiriquement sans race exploitable (`npm run
-concurrency-test`, scénario "shared-token") : Node traite les handlers socket de façon
-synchrone, donc chaque débit/crédit s'applique intégralement avant le suivant — jamais de
-solde négatif, de débit perdu ou de crédit doublé, même en tirant deux `round:start`/
-`round:cashout` strictement au même instant réseau.
+lever ces limites. Multi-onglets sur le même token : chaque socket a sa propre `Round`
+(`server/core/roundEngine.js` — round/step/status) mais partage le même `PlayerAccount`
+(balance/wallet) — donc deux onglets peuvent avoir chacun un tour actif en parallèle sur
+le même solde, comme deux joueurs distincts. Vérifié empiriquement sans race exploitable
+(`npm run concurrency-test`, scénario "shared-token") : jamais de solde négatif, de débit
+perdu ou de crédit doublé, même en tirant deux `round:start`/`round:cashout` strictement
+au même instant réseau. `Round.startRound/step_/cashOut` sont `async` (le `Ledger` injecté
+peut faire un vrai appel réseau pour une future plateforme non-standalone, voir
+`HUB88_INTEGRATION.md`) — la garde d'état (`status === 'active'`/`'starting'`) doit donc
+être posée **avant** le premier `await`, jamais après, sous peine de double-débit sur un
+double `round:start` tiré dos-à-dos (piège rencontré et corrigé, voir git history de
+`roundEngine.js`).
 
 **Décor scrollant + calques (`PixiRenderer.js`) :** le sol (`background-sand-tile.png`,
 remplace `path-sand-tile.png` conservé mais plus référencé) vit désormais dans `track`
