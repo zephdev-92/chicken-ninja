@@ -201,32 +201,60 @@ console.log('\n── Hub88Ledger — debit/credit/rollback against the mock wal
   const debitRes = await ledger.debit(10, { roundId: '1', transactionUuid: betTxId });
   check('debit succeeds and returns the new balance', debitRes.ok && debitRes.balance === 90);
 
-  const dupRes = await ledger.debit(10, { roundId: '1', transactionUuid: betTxId });
+  // Raw wallet-level dedup, bypassing hub88Ledger's own error handling — this is
+  // specifically testing the mock's/Wallet API's own duplicate detection, not
+  // hub88Ledger's policy on top of it (see the next block for that).
+  const rawDupRes = await walletClient.post('/transaction/bet', {
+    game_code: 'chicken_ninja', token: playerHub88Token,
+    transaction_uuid: betTxId, round: '1', round_closed: false, currency: 'EUR', amount: 1000000,
+  });
   check(
-    'replaying the same transaction_uuid is rejected as a duplicate',
-    !dupRes.ok && dupRes.error === 'duplicate_transaction',
+    'replaying the same transaction_uuid at the wallet level is rejected as a duplicate',
+    !rawDupRes.ok && rawDupRes.error === 'duplicate_transaction',
+  );
+  check('a rejected duplicate at the wallet level does not move the balance', walletBalances.get(playerHub88Token) === 9000000);
+
+  // hub88Ledger.debit()'s own policy (per Hub88's Wallet API docs): any bet
+  // failure other than insufficient_balance/limit_reached triggers a best-effort
+  // rollback — including duplicate_transaction, e.g. from a stale retry that
+  // turned out to have already succeeded. Replaying betTxId through the ledger
+  // (not the raw client) should therefore roll the original bet back.
+  const ledgerDupRes = await ledger.debit(10, { roundId: '1', transactionUuid: betTxId });
+  check(
+    'replaying a transaction_uuid through the ledger reports duplicate_transaction',
+    !ledgerDupRes.ok && ledgerDupRes.error === 'duplicate_transaction',
+  );
+  check(
+    'and triggers an automatic rollback of the original bet, restoring the balance',
+    fromHub88Amount(walletBalances.get(playerHub88Token)) === 100,
   );
 
+  // Fresh bet to exercise credit/rollback against, now that the balance is back
+  // to a known 100.
+  const betTxId2 = randomUUID();
+  const debitRes2 = await ledger.debit(10, { roundId: '4', transactionUuid: betTxId2 });
+  check('a fresh bet after the rollback succeeds normally', debitRes2.ok && debitRes2.balance === 90);
+
   const winRes = await ledger.credit(25, {
-    roundId: '1', transactionUuid: randomUUID(), referenceTransactionUuid: betTxId, roundClosed: true,
+    roundId: '4', transactionUuid: randomUUID(), referenceTransactionUuid: betTxId2, roundClosed: true,
   });
   check('credit succeeds and returns the new balance', winRes.ok && winRes.balance === 115);
 
   const bustRes = await ledger.credit(0, {
-    roundId: '2', transactionUuid: randomUUID(), referenceTransactionUuid: randomUUID(), roundClosed: true,
+    roundId: '5', transactionUuid: randomUUID(), referenceTransactionUuid: randomUUID(), roundClosed: true,
   });
   check('a 0-amount win (bust close) is accepted and leaves the balance unchanged', bustRes.ok && bustRes.balance === 115);
 
-  const overdraftRes = await ledger.debit(999999, { roundId: '3', transactionUuid: randomUUID() });
+  const overdraftRes = await ledger.debit(999999, { roundId: '6', transactionUuid: randomUUID() });
   check(
-    'a debit past the mock balance is rejected as insufficient_balance',
+    'a debit past the mock balance is rejected as insufficient_balance, no rollback attempted',
     !overdraftRes.ok && overdraftRes.error === 'insufficient_balance',
   );
 
-  const rollbackRes = await ledger.rollback({ transactionUuid: betTxId });
+  const rollbackRes = await ledger.rollback({ transactionUuid: betTxId2 });
   check('rollback refunds the bet and returns the new balance', rollbackRes.ok && rollbackRes.balance === 125);
 
-  const dupRollbackRes = await ledger.rollback({ transactionUuid: betTxId });
+  const dupRollbackRes = await ledger.rollback({ transactionUuid: betTxId2 });
   check(
     'rolling back the same transaction twice is rejected as a duplicate',
     !dupRollbackRes.ok && dupRollbackRes.error === 'duplicate_transaction',

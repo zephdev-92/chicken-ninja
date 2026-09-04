@@ -23,6 +23,7 @@ const hub88Config = (() => {
   const {
     HUB88_PRIVATE_KEY, HUB88_REMOTE_PUBLIC_KEY, HUB88_WALLET_BASE_URL,
     HUB88_GAME_CODE, HUB88_GAME_NAME, HUB88_LAUNCH_BASE_URL,
+    HUB88_THUMB_URL, HUB88_BACKGROUND_URL, HUB88_CATEGORY,
   } = process.env;
   if (!HUB88_PRIVATE_KEY || !HUB88_REMOTE_PUBLIC_KEY || !HUB88_WALLET_BASE_URL
     || !HUB88_GAME_CODE || !HUB88_LAUNCH_BASE_URL) {
@@ -35,6 +36,12 @@ const hub88Config = (() => {
       gameCode:            HUB88_GAME_CODE,
       gameName:              HUB88_GAME_NAME || 'Chicken Ninja',
       launchBaseUrl:           HUB88_LAUNCH_BASE_URL,
+      // Required by Hub88's /game/list — genuinely unset until real assets are
+      // hosted and the category enum is confirmed with Hub88 (see
+      // HUB88_INTEGRATION.md), not silently defaulted to something fake.
+      thumbUrl:              HUB88_THUMB_URL || '',
+      backgroundUrl:           HUB88_BACKGROUND_URL || '',
+      ...(HUB88_CATEGORY ? { category: HUB88_CATEGORY } : {}),
     }),
   };
 })();

@@ -58,24 +58,25 @@ export class Hub88Ledger extends Ledger {
     });
     if (res.ok) return { ok: true, balance: fromHub88Amount(res.data.balance) };
 
-    // A parsed RS_ERROR_* (insufficient balance, limit reached, ...) is a
-    // definitive answer — the balance never moved, nothing to unwind.
-    if (res.error !== 'network_error') return { ok: false, error: res.error };
+    // Hub88's own Wallet API docs (rollback's documented trigger condition):
+    // roll back on any bet failure EXCEPT insufficient_balance/limit_reached —
+    // those two are well-understood non-mutating rejections, the balance never
+    // moved. For every other case, including our own network_error but also a
+    // duplicate_transaction from a stale retry or a signature/token error,
+    // attempting rollback is the documented safe default: a no-op
+    // (transaction_not_found) if nothing actually landed, a correct unwind if it
+    // did — see HUB88_INTEGRATION.md § Politique réseau Wallet API.
+    if (res.error === 'insufficient_balance' || res.error === 'limit_reached') {
+      return { ok: false, error: res.error };
+    }
 
-    // Ambiguous outcome: we don't know whether this bet actually landed on
-    // Hub88's side before the connection dropped. Best-effort rollback of the
-    // same transaction_uuid resolves it either way. 'transaction_not_found' is
-    // the *expected*, routine resolution — it means the bet genuinely never
-    // reached Hub88, nothing to undo, not a failure worth alarming on. Any other
-    // failure here is the real problem: the bet may have landed and we still
-    // couldn't undo it, which needs a human to reconcile against Hub88 directly.
     const cleanup = await this.rollback({ transactionUuid: meta.transactionUuid });
     if (!cleanup.ok && cleanup.error !== 'transaction_not_found') {
       console.error(
-        `[hub88Ledger] bet ${meta.transactionUuid} failed on a network error and the follow-up rollback also failed (${cleanup.error}) — manual reconciliation may be needed.`,
+        `[hub88Ledger] bet ${meta.transactionUuid} failed (${res.error}) and the follow-up rollback also failed (${cleanup.error}) — manual reconciliation may be needed.`,
       );
     }
-    return { ok: false, error: 'network_error' };
+    return { ok: false, error: res.error };
   }
 
   // meta: { roundId, transactionUuid, referenceTransactionUuid, roundClosed }

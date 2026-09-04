@@ -200,6 +200,16 @@ openssl rsa -pubout -in private.pem -out public.pem
   fois, signer cette sérialisation exacte, l'envoyer telle quelle (pas de re-stringify côté
   transport qui changerait l'ordre des clés/l'espacement).
 
+⚠️ **Point à vérifier avant onboarding** : la doc Games API contient la phrase "the
+signature is validated using the public key associated with the provided `operator_id`",
+ce qui pourrait signifier que Hub88 signe ses requêtes entrantes avec **une clé différente
+par opérateur** plutôt qu'une seule clé Hub88 globale. Notre implémentation actuelle
+(`gamesApi.js`) vérifie avec **une seule** clé publique fixe (`HUB88_REMOTE_PUBLIC_KEY`).
+Si l'hypothèse multi-clés s'avère exacte, ça cassera dès qu'un deuxième opérateur sera
+connecté via Hub88 — à clarifier explicitement avec le contact Hub88 à l'onboarding avant
+de considérer cette partie comme acquise pour plus d'un opérateur. Pas assez de certitude
+dans la doc consultée pour trancher ni coder une gestion multi-clés à l'aveugle.
+
 ### 2. Endpoints Games API à exposer (nous répondons à Hub88)
 
 Implémenté sous `/hub88/supplier/generic/v2/...` (`server/platforms/hub88/gamesApi.js`,
@@ -209,9 +219,9 @@ URL négociée avec Hub88 à l'onboarding (l'exemple de leur doc est
 
 | Endpoint | Rôle | Champs clés |
 |---|---|---|
-| `POST /game/url` | Retourne l'URL de lancement du jeu | `platform`, `lobby_url`, `lang`, `operator_id`, `currency`, `country`, `game_code`, `user`/`token` optionnels (absents = mode DEMO) |
-| `POST /game/round` | Détails d'une partie (page de récap) | `transaction_uuid` ou `round`+`user` |
-| `POST /game/list` | Liste des jeux qu'on fournit | retourne `game_code`, `name`, `category`, `platforms`, `blocked_countries` |
+| `POST /game/url` | Retourne l'URL de lancement du jeu | Requis : `platform`, `lobby_url`, `lang`, `operator_id`, `currency`, `country`. Optionnels : `user`, `token` (absents = mode DEMO), `sub_partner_id`, `deposit_url`, `meta`. `game_code` : présent dans tous les exemples de la doc malgré une classification ambiguë "optionnel" — traité comme requis côté implémentation (`gamesApi.js` rejette si absent/mauvaise valeur), prudence justifiée. Réponse succès `{ url }` (200) ; réponse d'erreur observée `{ error }` (404 dans l'exemple doc — nos handlers renvoient 401/400 selon le cas, forme `{error}` identique mais code HTTP exact à reconfirmer en sandbox). |
+| `POST /game/round` | Détails d'une partie (page de récap) | `operator_id` requis, `transaction_uuid` OU `round`+`user`. **Pas implémenté** (501) — bloqué sur la persistance des transactions. |
+| `POST /game/list` | Liste des jeux qu'on fournit | `operator_id` requis en requête. Réponse : tableau d'objets jeu — requis `name`, `game_code`, `product`, `category`, `enabled`, `platforms`, `blocked_countries`, `url_thumb`, `url_background` ; optionnel `freebet_support`. Notre implémentation envoie tous ces champs, mais `url_thumb`/`url_background` sont vides par défaut (pas d'assets hébergés) et `category`/`product` sont des valeurs provisoires — à confirmer avec Hub88 avant tout `/game/list` réel (voir env vars `HUB88_THUMB_URL`/`HUB88_BACKGROUND_URL`/`HUB88_CATEGORY`). |
 
 Règle critique du Core API Flow : **ne jamais accepter d'appel Wallet API tant qu'on n'a
 pas nous-même répondu avec succès à `/game/url`** — sinon Hub88 attend `RS_ERROR_INVALID_TOKEN`
@@ -255,39 +265,58 @@ propre, pour ne pas coupler l'identité Hub88 du round à la valeur qui alimente
 
 **Codes d'erreur à gérer** (`RS_OK`, `RS_ERROR_INVALID_TOKEN`, `RS_ERROR_NOT_ENOUGH_MONEY`,
 `RS_ERROR_INVALID_SIGNATURE`, `RS_ERROR_USER_DISABLED`, `RS_ERROR_DUPLICATE_TRANSACTION`,
-`RS_ERROR_LIMIT_REACHED`, `RS_ERROR_WRONG_SYNTAX`, `RS_ERROR_TOKEN_EXPIRED`,
-`RS_ERROR_WRONG_CURRENCY`, `RS_ERROR_TRANSACTION_DOES_NOT_EXIST`) : à mapper vers les
-`server:error` déjà émis côté Socket.IO (`insufficient_balance`, `invalid_bet`, etc.) pour
-que le front n'ait pas à connaître deux vocabulaires d'erreur différents.
+`RS_ERROR_LIMIT_REACHED`, `RS_ERROR_WRONG_SYNTAX`, `RS_ERROR_WRONG_TYPES`,
+`RS_ERROR_TOKEN_EXPIRED`, `RS_ERROR_WRONG_CURRENCY`, `RS_ERROR_TRANSACTION_DOES_NOT_EXIST`,
+`RS_ERROR_INVALID_PARTNER`, `RS_ERROR_INVALID_GAME`, `RS_ERROR_OPERATOR_API`,
+`RS_ERROR_UNKNOWN`) : à mapper vers les `server:error` déjà émis côté Socket.IO
+(`insufficient_balance`, `invalid_bet`, etc.) pour que le front n'ait pas à connaître deux
+vocabulaires d'erreur différents — implémenté dans `walletClient.js` (`RS_ERROR_MAP`).
+Liste tenue volontairement plus large que ce qu'une relecture de la doc a pu confirmer
+comme "exhaustif" — une page de la doc s'est prétendue exhaustive avec 14 codes tout en
+omettant `RS_ERROR_LIMIT_REACHED`, référencé ailleurs sur le même site. Ne jamais faire
+confiance à une revendication d'exhaustivité d'un résumé de doc sans vérifier par
+recoupement — ce qui est déjà couvert ici reste couvert, mais un nouveau code Hub88 non
+listé ici tombera dans le générique `unknown_error`, pas une erreur en soi.
 
 **Rétention** : conserver les transactions au moins 4 mois (actuellement rien n'est
 persisté — `accounts` est une Map en mémoire pure, tout est perdu au redémarrage). Il
 faudra un log de transactions persistant (fichier ou DB) au moins pour le chemin Hub88,
 indépendamment du chemin standalone qui peut rester volatile.
 
-### Politique réseau Wallet API — ✅ Fait
+### Politique réseau Wallet API — ✅ Fait (révisée après relecture de la doc, 2026-09-04)
 
 Distincte du cas "joueur déconnecté" (§ Décision produit plus haut) : ici, c'est **notre**
-appel sortant vers Hub88 (`walletClient.js`) qui échoue au niveau réseau (timeout,
-connexion refusée) — pas une réponse `RS_ERROR_*` métier, une réponse absente. Politique
-reprise du mapping équivalent fait pour un autre jeu du studio (CRASH-GAME/BetConstruct,
-même raisonnement transposé à Hub88), implémentée dans `walletClient.js`/`hub88Ledger.js`
-et testée dans `hub88-mock-test.js` (injection de coupure réseau via un mock configurable) :
+appel sortant vers Hub88 (`walletClient.js`) qui échoue — soit au niveau réseau (timeout,
+connexion refusée, pas de réponse), soit avec une réponse `RS_ERROR_*` métier. Politique
+implémentée dans `walletClient.js`/`hub88Ledger.js` et testée dans `hub88-mock-test.js`
+(injection de coupure réseau via un mock configurable) :
 
-- **`bet`** : **jamais** retenté automatiquement — un retry aveugle risquerait de
-  débiter deux fois si la première tentative avait en fait atteint Hub88. À la place,
-  `debit()` tente un rollback best-effort sur le même `transaction_uuid` pour lever
-  l'ambiguïté : `RS_ERROR_TRANSACTION_DOES_NOT_EXIST` en retour confirme que le bet n'a
-  jamais atteint Hub88 (résolution normale, rien à logger en erreur) ; tout autre échec du
-  rollback de nettoyage est le vrai cas préoccupant (bet peut-être passé, impossible à
-  annuler) — loggé explicitement pour réconciliation manuelle. Dans tous les cas,
-  `startRound` échoue côté joueur (`network_error`) — le round ne peut pas être considéré
-  comme démarré tant qu'on n'a pas confirmation.
+- **`bet`** : **jamais** retenté automatiquement (`walletClient.post()` sans `retries`) —
+  un retry aveugle risquerait de débiter deux fois si la tentative précédente avait en fait
+  atteint Hub88. En revanche, un rollback best-effort du même `transaction_uuid` est tenté
+  pour **tout** échec autre que `RS_ERROR_NOT_ENOUGH_MONEY`/`RS_ERROR_LIMIT_REACHED` —
+  c'est la politique documentée explicitement dans la Wallet API Hub88 elle-même ("appelé
+  si pari/gain reçoit un statut différent de RS_OK, RS_ERROR_LIMIT_REACHED,
+  RS_ERROR_NOT_ENOUGH_MONEY"), pas seulement notre propre supposition pour le cas réseau.
+  Concrètement ça couvre aussi `RS_ERROR_DUPLICATE_TRANSACTION` (ex. une relance avec le
+  même UUID après avoir cru l'appel précédent perdu, alors qu'il avait réussi — rollback
+  légitime), `RS_ERROR_INVALID_SIGNATURE`/`WRONG_SYNTAX` (erreurs de notre côté, rien n'a
+  dû être débité, mais le rollback reste inoffensif), etc. `RS_ERROR_TRANSACTION_DOES_NOT_EXIST`
+  en retour du rollback confirme que le bet n'a jamais atteint Hub88 (résolution normale,
+  rien à logger en erreur) ; tout autre échec du rollback de nettoyage est le vrai cas
+  préoccupant (bet peut-être passé, impossible à annuler) — loggé explicitement pour
+  réconciliation manuelle. Dans tous les cas, `startRound` échoue côté joueur — le round
+  ne peut pas être considéré comme démarré tant qu'on n'a pas confirmation.
 - **`win`/`rollback`** : ce sont déjà des corrections, rejouer avec le même
   `transaction_uuid` est sûr (idempotent — `RS_ERROR_DUPLICATE_TRANSACTION` si la première
-  tentative avait réussi). `walletClient.post()` accepte un nombre de retries en option,
-  `hub88Ledger.js` passe 2 retries (3 tentatives au total, backoff court) pour `credit`/
-  `rollback`, 0 pour `debit`.
+  tentative avait réussi) — mais uniquement sur échec **réseau**, jamais sur un
+  `RS_ERROR_*` métier définitif (`walletClient.post()` ne retente que sur l'exception réseau
+  elle-même, jamais sur une réponse parsée). `hub88Ledger.js` passe 2 retries (3 tentatives
+  au total, backoff court) pour `credit`/`rollback`, 0 pour `debit`.
+
+Testé explicitement dans `hub88-mock-test.js` : rejouer un `transaction_uuid` déjà débité
+via `hub88Ledger.debit()` (pas juste au niveau `walletClient` brut) déclenche bien le
+rollback automatique de la mise d'origine et restaure le solde.
 
 ### 4. Rate limits à respecter
 
@@ -438,6 +467,9 @@ définissent pas) :
 | `HUB88_GAME_CODE` | `game_code` attribué par Hub88 pour Chicken Ninja |
 | `HUB88_GAME_NAME` | Nom affiché dans `/game/list` (défaut : `"Chicken Ninja"`) |
 | `HUB88_LAUNCH_BASE_URL` | URL du frontend réel où `/game/url` redirige (le build Vite en prod) |
+| `HUB88_THUMB_URL` | `url_thumb` requis par `/game/list` — vide par défaut, à héberger avant tout `/game/list` réel |
+| `HUB88_BACKGROUND_URL` | `url_background` requis par `/game/list` — idem |
+| `HUB88_CATEGORY` | `category` de `/game/list` (défaut : `"instant_win"`, provisoire — à confirmer avec Hub88) |
 
 Aucune valeur par défaut n'est fournie pour les clés/URL — pas de placeholder qui
 ressemblerait à une vraie config par accident. `server/platforms/hub88/signature.js`

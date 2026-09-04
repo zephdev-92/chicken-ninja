@@ -16,7 +16,15 @@ import { createHub88Session } from './sessions.js';
 // in production) — /game/url hands the operator a URL into that with the session
 // token attached as a query param, for the iframe integration path (see
 // HUB88_INTEGRATION.md § Front-end: iframe classique vs Supplier Games SDK).
-export function createGamesApiRouter({ hub88PublicKeyPem, gameCode, gameName, launchBaseUrl }) {
+export function createGamesApiRouter({
+  hub88PublicKeyPem, gameCode, gameName, launchBaseUrl,
+  // Required by /game/list per HUB88_INTEGRATION.md — no real hosted assets or
+  // confirmed category value exist yet (no CDN, no confirmation from Hub88 on
+  // which category enum value fits a Chicken-Road-style instant-win game), so
+  // these arrive as explicit params with honest placeholders rather than silently
+  // baked-in fake URLs — must be real before this ever reaches a real /game/list.
+  thumbUrl = '', backgroundUrl = '', category = 'instant_win',
+}) {
   const router = Router();
 
   // Raw bytes, not express.json()'s parsed object — the signature covers the
@@ -80,9 +88,14 @@ export function createGamesApiRouter({ hub88PublicKeyPem, gameCode, gameName, la
     res.json([{
       game_code: gameCode,
       name: gameName,
-      category: 'instant',
+      product: 'Chicken Ninja Studio', // TODO: confirm the exact value Hub88 expects here
+      category,                        // TODO: confirm against Hub88's actual category enum
+      enabled: true,
       platforms: ['GPL_DESKTOP', 'GPL_MOBILE'],
       blocked_countries: [],
+      url_thumb: thumbUrl,
+      url_background: backgroundUrl,
+      freebet_support: false,
     }]);
   });
 
