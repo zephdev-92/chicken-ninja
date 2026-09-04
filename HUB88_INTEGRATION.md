@@ -72,12 +72,15 @@ Tout le reste — `resolveStep`, `computeStepMultiplier`, la séquence
 start→step→step→…→cashout/bust, les événements Socket.IO émis vers le client, le rendu
 Pixi, `useChickenGame.js` — ne doit être écrit **qu'une fois**.
 
-### Découpage proposé : `roundEngine` + interface `Ledger`
+### Découpage : `roundEngine` + interface `Ledger`
 
-`PlayerSession` (`server/index.js:82-227`) mélange aujourd'hui trois responsabilités dans
-la même classe : (1) la state machine du round, (2) l'orchestration du HMAC/provably-fair,
-(3) la mutation directe de `account.balance`/`account.wallet`. Les deux premières sont déjà
-plateforme-agnostiques ; c'est la troisième qu'il faut extraire derrière une interface.
+L'ancien `PlayerSession` mélangeait trois responsabilités dans la même classe : (1) la
+state machine du round, (2) l'orchestration du HMAC/provably-fair, (3) la mutation directe
+de `account.balance`. Les deux premières étaient déjà plateforme-agnostiques ; c'est la
+troisième qui a été extraite derrière une interface.
+
+**✅ Fait** (2026-09-04) — l'extraction ci-dessous est en place et validée
+(`npm run lint`, `npm run concurrency-test`, `npm run rtp-sim` tous verts) :
 
 ```
 server/
@@ -89,10 +92,10 @@ server/
                         # doit satisfaire pour driver roundEngine.
   platforms/
     standalone/
-      localLedger.js  # Implémente Ledger via la Map `accounts` — c'est PlayerAccount
-                        # tel qu'il existe aujourd'hui, juste déplacé et mis derrière
-                        # l'interface plutôt qu'en champ direct de PlayerSession.
-    hub88/
+      localLedger.js  # Implémente Ledger via account.balance — c'est PlayerAccount
+                        # (toujours dans server/index.js) mis derrière l'interface au
+                        # lieu d'être manipulé en champ direct de l'ancien PlayerSession.
+    hub88/                    # ← reste à écrire (voir plan d'implémentation)
       hub88Ledger.js   # Implémente Ledger via la Wallet API Hub88 (signée RSA).
       gamesApi.js       # Endpoints /game/url, /game/round, /game/list (voir plus bas).
       signature.js       # sign/verify RSA-SHA256.
@@ -100,6 +103,20 @@ server/
       xLedger.js
       xGamesApi.js (ou équivalent propre à cette plateforme)
 ```
+
+**Piège rencontré pendant l'extraction, à connaître avant d'écrire `hub88Ledger.js`** :
+rendre `startRound` `async` (nécessaire — `ledger.debit` fera un vrai appel HTTP signé
+côté Hub88) introduit une fenêtre de réentrance que le code synchrone d'origine n'avait
+pas. Le garde-fou `if (this.status === 'active') return { error: 'already_active' }`
+doit être **posé de façon synchrone avant le premier `await`**, sinon deux `round:start`
+tirés dos-à-dos passent tous les deux la garde pendant que le premier attend la résolution
+du débit — `concurrency-test` l'a détecté immédiatement (double débit). La solution
+retenue dans `roundEngine.js` : un état transitoire `'starting'` posé de façon synchrone
+avant l'`await`, restauré à l'état précédent si le débit échoue — ça bloque à la fois un
+second `round:start` concurrent (même garde) et un `round:step`/`cashOut` prématuré (les
+deux exigent `status === 'active'`, que `'starting'` ne satisfait pas). Toute méthode
+`Ledger` future qui fait un vrai I/O doit être écrite en gardant ce principe en tête :
+**toujours poser la garde de façon synchrone avant le premier point d'`await`.**
 
 `Ledger` — le contrat exact :
 
@@ -124,12 +141,14 @@ charge pour chaque `Ledger` de traduire les codes propres à sa plateforme
 que `roundEngine` et le frontend n'aient jamais à connaître le vocabulaire d'une
 plateforme tierce.
 
-**Conséquence directe à anticiper** : `PlayerSession.startRound/step_/cashOut` passent de
-synchrone à `async` (`await this.ledger.debit(...)`), donc les handlers Socket.IO dans
-`server/index.js` (`socket.on('round:start', ...)`, etc.) doivent devenir `async` aussi.
-C'est le seul changement mécanique imposé au code existant par ce refactor — tout le reste
-de `PlayerSession` (calcul du multiplicateur, HMAC, transitions de statut) est copié tel
-quel dans `roundEngine.js`.
+**Conséquence mécanique appliquée** : `Round.startRound/step_/cashOut` sont `async`
+(`await this.ledger.debit(...)`), donc les handlers Socket.IO dans `server/index.js`
+(`socket.on('round:start', ...)`, etc.) le sont aussi. C'était le seul changement
+mécanique imposé au code existant par ce refactor — le reste (calcul du multiplicateur,
+HMAC, transitions de statut) est resté identique, déplacé tel quel dans `roundEngine.js`.
+Ce passage à `async` est exactement ce qui a produit le piège de réentrance documenté
+plus haut — pas une coïncidence, c'est le risque générique de rendre async un code qui
+gardait ses invariants par exécution synchrone.
 
 ### Ce qui varie réellement par plateforme
 
@@ -275,18 +294,20 @@ nécessaire pour l'iframe classique.
 
 ## Plan d'implémentation concret
 
-0. **Extraire `roundEngine` + interface `Ledger`** (voir section dédiée ci-dessus),
-   *avant* d'écrire quoi que ce soit de spécifique à Hub88 :
-   - Déplacer `PlayerAccount` + la logique `accounts` Map de `server/index.js` vers
-     `server/platforms/standalone/localLedger.js`, implémentant `Ledger`.
-   - Extraire la state machine de `PlayerSession` vers `server/core/roundEngine.js`
-     (`Round`), paramétrée par un `ledger` injecté au constructeur, plus `async` sur
-     `startRound/step_/cashOut`.
-   - Mettre à jour `server/index.js` : chaque connexion Socket.IO instancie toujours un
-     `Round`, mais construit avec `new LocalLedger(account)` — comportement strictement
-     identique à aujourd'hui, c'est une extraction pure, pas un changement de comportement.
-   - Vérifier avec `npm run concurrency-test` et `npm run rtp-sim` que rien n'a changé
-     côté standalone avant de toucher à Hub88.
+0. ✅ **Fait — Extraire `roundEngine` + interface `Ledger`** (voir section dédiée
+   ci-dessus), avant d'écrire quoi que ce soit de spécifique à Hub88 :
+   - `server/core/ledger.js` (contrat) + `server/core/roundEngine.js` (`Round`,
+     extrait de l'ancien `PlayerSession`, `async` sur `startRound/step_/cashOut`,
+     piloté par un `ledger` injecté au constructeur).
+   - `server/platforms/standalone/localLedger.js` implémente `Ledger` en enveloppant
+     `PlayerAccount.balance` (`PlayerAccount` + la `Map` `accounts` restent dans
+     `server/index.js`, c'est la logique wallet/reserve — hors du contrat `Ledger`,
+     propre au standalone).
+   - `server/index.js` : chaque connexion Socket.IO instancie `new Round(new
+     LocalLedger(account))` — comportement externe strictement identique à avant.
+   - Validé : `npm run lint`, `npm run concurrency-test` (0 violation après le fix de
+     réentrance décrit ci-dessus), `npm run rtp-sim` (tous les spot-checks dans leur IC
+     95%) tous verts.
 1. **Signature RSA** : générer la paire de clés, ajouter
    `server/platforms/hub88/signature.js` (sign sortant Wallet API, verify entrant Games
    API).
