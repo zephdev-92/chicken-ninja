@@ -99,10 +99,15 @@ server/
       localLedger.js  # Implémente Ledger via account.balance — c'est PlayerAccount
                         # (toujours dans server/index.js) mis derrière l'interface au
                         # lieu d'être manipulé en champ direct de l'ancien PlayerSession.
-    hub88/                    # ← reste à écrire (voir plan d'implémentation)
-      hub88Ledger.js   # Implémente Ledger via la Wallet API Hub88 (signée RSA).
-      gamesApi.js       # Endpoints /game/url, /game/round, /game/list (voir plus bas).
-      signature.js       # sign/verify RSA-SHA256.
+    hub88/                            # ← toutes les briques ci-dessous sont écrites, voir
+                                        #   le plan d'implémentation pour ce qui reste hors-code
+      hub88Ledger.js           # Implémente Ledger via la Wallet API Hub88 (signée RSA).
+      gamesApi.js               # Endpoints /game/url, /game/round, /game/list (voir plus bas).
+      signature.js               # sign/verify RSA-SHA256.
+      currency.js                  # Conversion montants ↔ entiers ×100000.
+      walletClient.js                # Client HTTP signé + mapping RS_ERROR_* (§ Wallet API).
+      sessions.js                      # Map token de session → contexte Hub88Ledger.
+      transactionLog.js                  # Log append-only des transactions (§ Rétention).
     <plateforme-suivante>/
       xLedger.js
       xGamesApi.js (ou équivalent propre à cette plateforme)
@@ -243,7 +248,7 @@ URL négociée avec Hub88 à l'onboarding (l'exemple de leur doc est
 | Endpoint | Rôle | Champs clés |
 |---|---|---|
 | `POST /game/url` | Retourne l'URL de lancement du jeu | Requis : `platform`, `lobby_url`, `lang`, `operator_id`, `currency`, `country`. Optionnels : `user`, `token` (absents = mode DEMO), `sub_partner_id`, `deposit_url`, `meta`. `game_code` : présent dans tous les exemples de la doc malgré une classification ambiguë "optionnel" — traité comme requis côté implémentation (`gamesApi.js` rejette si absent/mauvaise valeur), prudence justifiée. Réponse succès `{ url }` (200) ; réponse d'erreur observée `{ error }` (404 dans l'exemple doc — nos handlers renvoient 401/400 selon le cas, forme `{error}` identique mais code HTTP exact à reconfirmer en sandbox). |
-| `POST /game/round` | Détails d'une partie (page de récap) | `operator_id` requis, `transaction_uuid` OU `round`+`user`. **Pas implémenté** (501) — bloqué sur la persistance des transactions. |
+| `POST /game/round` | Détails d'une partie (page de récap) | `operator_id` requis, `transaction_uuid` OU `round`+`user` (relu dans la doc, 2026-09-08 : le champ requis en sortie est `{ url }` — l'URL d'une page de récap embarquable, **pas** les données de transaction elles-mêmes ; aucun exemple JSON fourni par Hub88 pour ce endpoint). **Toujours pas implémenté** (501), mais plus pour la même raison : la persistance existe désormais (`transactionLog.js`, § Rétention) et peut résoudre `transaction_uuid`/`round`+`user` sans problème — ce qui manque encore, c'est la page de récap elle-même (aucune route front, aucun design) à laquelle `{ url }` devrait pointer. Fabriquer une URL vers une page qui n'existe pas serait pire que d'admettre le manque. |
 | `POST /game/list` | Liste des jeux qu'on fournit | `operator_id` requis en requête. Réponse : tableau d'objets jeu — requis `name`, `game_code`, `product`, `category`, `enabled`, `platforms`, `blocked_countries`, `url_thumb`, `url_background` ; optionnel `freebet_support`. Notre implémentation envoie tous ces champs, mais `url_thumb`/`url_background` sont vides par défaut (pas d'assets hébergés) et `category`/`product` sont des valeurs provisoires — à confirmer avec Hub88 avant tout `/game/list` réel (voir env vars `HUB88_THUMB_URL`/`HUB88_BACKGROUND_URL`/`HUB88_CATEGORY`). |
 
 Règle critique du Core API Flow : **ne jamais accepter d'appel Wallet API tant qu'on n'a
@@ -301,10 +306,20 @@ confiance à une revendication d'exhaustivité d'un résumé de doc sans vérifi
 recoupement — ce qui est déjà couvert ici reste couvert, mais un nouveau code Hub88 non
 listé ici tombera dans le générique `unknown_error`, pas une erreur en soi.
 
-**Rétention** : conserver les transactions au moins 4 mois (actuellement rien n'est
-persisté — `accounts` est une Map en mémoire pure, tout est perdu au redémarrage). Il
-faudra un log de transactions persistant (fichier ou DB) au moins pour le chemin Hub88,
-indépendamment du chemin standalone qui peut rester volatile.
+**Rétention** — ✅ **Fait** (2026-09-08) : conserver les transactions au moins 4 mois.
+`server/platforms/hub88/transactionLog.js` (`TransactionLog`) — log append-only en JSON
+Lines sur disque, réindexé en mémoire (par `transaction_uuid` et par `round`) au
+démarrage. Rien n'y est jamais supprimé, donc la rétention 4+ mois est satisfaite sans
+logique de purge à écrire ni à tester ; l'archivage/la rotation du fichier après 4+ mois
+reste un sujet d'exploitation, pas de code applicatif. C'est la seule chose dans tout le
+repo qui survit à un redémarrage serveur — `accounts`/`sessions` (Hub88 et standalone)
+restent volontairement en mémoire pure (voir CLAUDE.md § Solde server-authoritative),
+mais un log de transactions qui disparaîtrait au redémarrage serait contradictoire avec
+son propre but (réconciliation, `/game/round`). `Hub88Ledger` journalise chaque tentative
+bet/win/rollback, succès **et** échec (un rejet est justement ce qu'une réconciliation a
+besoin de voir). Testé dans `hub88-mock-test.js` (bet/win/échec enregistrés avec les bons
+champs, puis une seconde instance `TransactionLog` pointée sur le même fichier —
+simulation d'un redémarrage — retrouve exactement le même index).
 
 ### Politique réseau Wallet API — ✅ Fait (révisée après relecture de la doc, 2026-09-04)
 
@@ -428,9 +443,10 @@ nécessaire pour l'iframe classique.
    Le mock wallet a dû être étoffé pour créditer réellement au rollback (il se
    contentait avant de renvoyer `RS_OK` sans bouger le solde) — sinon ce test n'aurait
    rien vérifié de plus qu'un HTTP 200.
-7. ❌ **Pas fait — Persistance minimale des transactions** (mode Hub88 seulement) : log
-   append-only (`transaction_uuid`, `round`, montant, statut) conservé 4+ mois. Bloque
-   `/game/round` (étape 2) en plus d'être une exigence de conformité en soi.
+7. ✅ **Fait (2026-09-08) — Persistance minimale des transactions** (mode Hub88
+   seulement) : `server/platforms/hub88/transactionLog.js` — voir § Rétention pour le
+   détail. Débloque la partie données de `/game/round` (étape 2) ; il reste seulement la
+   page de récap elle-même à construire pour répondre `{ url }`.
 8. ✅ **Fait — Tests** : `scripts/hub88-mock-test.js` (`npm run hub88-mock-test`) — mock
    in-process de la Wallet API + signature simulée côté "Hub88" pour exercer
    `signature.js`, `gamesApi.js` (`/game/url`, rejet signature invalide, rejet mauvais
@@ -493,8 +509,9 @@ définissent pas) :
 | `HUB88_THUMB_URL` | `url_thumb` requis par `/game/list` — vide par défaut, à héberger avant tout `/game/list` réel |
 | `HUB88_BACKGROUND_URL` | `url_background` requis par `/game/list` — idem |
 | `HUB88_CATEGORY` | `category` de `/game/list` (défaut : `"instant_win"`, provisoire — à confirmer avec Hub88) |
+| `HUB88_TRANSACTION_LOG_PATH` | Chemin du fichier JSON Lines du log de transactions — seule variable Hub88 avec une vraie valeur par défaut (`data/hub88-transactions.jsonl`, relatif au cwd du process), volontairement : contrairement aux clés/URL, un mauvais chemin par défaut ne fait pas passer une intégration non configurée pour configurée, juste écrire au mauvais endroit — à pointer vers un stockage durable (pas un disque éphémère) en prod. |
 
-Aucune valeur par défaut n'est fournie pour les clés/URL — pas de placeholder qui
+Aucune valeur par défaut n'est fournie pour les clés/URL ci-dessus — pas de placeholder qui
 ressemblerait à une vraie config par accident. `server/platforms/hub88/signature.js`
 exporte `generateDevKeyPair()` pour générer une paire de clés éphémère en local, utile
 uniquement pour rejouer `npm run hub88-mock-test` ou développer sans attendre l'onboarding.

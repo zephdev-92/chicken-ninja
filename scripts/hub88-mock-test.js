@@ -6,6 +6,9 @@
 import { createServer } from 'http';
 import express from 'express';
 import { randomUUID } from 'crypto';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   generateDevKeyPair, signBody, verifyBody,
 } from '../server/platforms/hub88/signature.js';
@@ -15,6 +18,7 @@ import { createGamesApiRouter } from '../server/platforms/hub88/gamesApi.js';
 import { getHub88Session } from '../server/platforms/hub88/sessions.js';
 import { fromHub88Amount } from '../server/platforms/hub88/currency.js';
 import { Round } from '../server/core/roundEngine.js';
+import { TransactionLog } from '../server/platforms/hub88/transactionLog.js';
 
 let passed = 0, failed = 0;
 function check(label, cond) {
@@ -419,6 +423,66 @@ console.log('\n── Network-failure policy (HUB88_INTEGRATION.md § Politique 
     check('rollback: exhausting all retries still reports network_error', !rollbackRes.ok && rollbackRes.error === 'network_error');
     failNextNRequests = 0; // don't leak into any test added after this one
   }
+}
+
+// ── TransactionLog — persistence (HUB88_INTEGRATION.md plan item 7) ──────────
+console.log('\n── TransactionLog — durable across a simulated restart ──');
+{
+  const logDir  = mkdtempSync(join(tmpdir(), 'chicken-ninja-hub88-txlog-'));
+  const logPath = join(logDir, 'transactions.jsonl');
+
+  const walletClient = new WalletClient({ baseUrl: walletBaseUrl, privateKeyPem: ours.privateKey });
+  const token = 'txlog-player';
+  walletBalances.set(token, 10000000); // 100.00 EUR
+  const session = { gameCode: 'chicken_ninja', hub88Token: token, currency: 'EUR', user: 'player-txlog' };
+
+  const log1 = new TransactionLog(logPath);
+  const ledger = new Hub88Ledger(walletClient, session, log1);
+  const round = new Round(ledger);
+
+  const { data: started } = await round.startRound(10, 'easy');
+  check('setup: round starts against the mock wallet', !!started);
+  const betUuid = round.lastBetTransactionUuid;
+
+  const betRecord = log1.get(betUuid);
+  check('bet is recorded with status ok', betRecord?.status === 'ok' && betRecord?.type === 'bet');
+  check('bet record carries the game-currency amount, not Hub88\'s ×100000 units', betRecord?.amount === 10);
+  check('bet record is indexed under its round', log1.forRound(String(started.round)).some(r => r.transactionUuid === betUuid));
+
+  // Settle the round to get a 'win'-type record — via step_() then, if it
+  // survived, an explicit cashOut(). Outcome-agnostic on purpose (same spirit as
+  // the Round.abandon() case B test above): a bust already settles the round
+  // through its own credit(0, ...) call inside step_(), so cashOut() only runs
+  // when there's still an active round left to close.
+  const stepRes = await round.step_();
+  check('setup: step_() resolves against the mock wallet', !!stepRes.data);
+  if (round.status === 'active') {
+    const { data: cashoutData } = await round.cashOut();
+    check('setup: cashOut settles the round', !!cashoutData);
+  } else {
+    check('setup: bust already settled the round via step_()', round.status === 'busted');
+  }
+
+  const winRecord = log1.forRound(String(started.round)).find(r => r.type === 'win');
+  check('win is recorded and references the bet it settles', winRecord?.status === 'ok' && winRecord?.referenceTransactionUuid === betUuid);
+
+  // A failed attempt must be logged too — reconciliation needs to see rejections,
+  // not just successful transactions.
+  const overdraftUuid = randomUUID();
+  await ledger.debit(999999, { roundId: 'overdraft-round', transactionUuid: overdraftUuid });
+  const failedRecord = log1.get(overdraftUuid);
+  check('a rejected debit is logged with status failed and its error code', failedRecord?.status === 'failed' && failedRecord?.error === 'insufficient_balance');
+
+  // Simulate a server restart: a brand-new TransactionLog instance reading the
+  // same file must reconstruct the exact same index without the process (or the
+  // ledger/round above) still being alive — this is the whole point of writing to
+  // disk instead of keeping the log purely in memory like `accounts`/`sessions`.
+  const log2 = new TransactionLog(logPath);
+  check('a fresh TransactionLog over the same file recovers the bet record', log2.get(betUuid)?.transactionUuid === betUuid);
+  check('...and the round index', log2.forRound(String(started.round)).length === log1.forRound(String(started.round)).length);
+  check('...and the failed attempt too', log2.get(overdraftUuid)?.status === 'failed');
+
+  rmSync(logDir, { recursive: true, force: true });
 }
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);

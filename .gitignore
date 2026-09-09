@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+data/
 .claude/settings.local.json
 .playwright-mcp/
 .impeccable/

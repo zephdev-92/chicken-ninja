@@ -100,9 +100,13 @@ export function createGamesApiRouter({
   });
 
   router.post('/game/round', (req, res) => {
-    // Needs a persisted transaction/round log to answer honestly — not built yet,
-    // see HUB88_INTEGRATION.md plan item 7 (Persistance minimale des transactions).
-    // Returning a fabricated URL here would be worse than admitting the gap.
+    // The transaction log itself now exists (server/platforms/hub88/transactionLog.js,
+    // HUB88_INTEGRATION.md plan item 7) — this is no longer blocked on missing data.
+    // What's still missing: per Hub88's Games API doc, this endpoint must return
+    // { url } pointing at an embeddable round-details recap PAGE, not the transaction
+    // data itself — that page doesn't exist yet (no route, no design). Fabricating a
+    // URL to a page that isn't there would be worse than admitting the gap, same
+    // reasoning as before this comment was last true.
     res.status(501).json({ error: 'not_implemented' });
   });
 
