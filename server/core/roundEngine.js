@@ -199,6 +199,7 @@ export class Round {
     const { ok } = await this.ledger.rollback({
       transactionUuid: this.lastBetTransactionUuid,
       referenceTransactionUuid: this.lastBetTransactionUuid,
+      roundId: String(this.round),
     });
     if (ok) this.status = 'idle';
   }

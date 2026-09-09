@@ -8,6 +8,7 @@ import { createGamesApiRouter } from './platforms/hub88/gamesApi.js';
 import { WalletClient } from './platforms/hub88/walletClient.js';
 import { Hub88Ledger } from './platforms/hub88/hub88Ledger.js';
 import { getHub88Session } from './platforms/hub88/sessions.js';
+import { initTransactionLog } from './platforms/hub88/transactionLog.js';
 
 const app        = express();
 const httpServer = createServer(app);
@@ -48,6 +49,10 @@ const hub88Config = (() => {
 
 if (hub88Config) {
   app.use('/hub88/supplier/generic/v2', hub88Config.gamesApiRouter);
+  // Replays HUB88_TRANSACTION_LOG_PATH (or its default) into memory so
+  // /game/round can answer for rounds logged before this boot — see
+  // transactionLog.js and HUB88_INTEGRATION.md plan item 7.
+  initTransactionLog();
   console.log('[server] Hub88 Games API mounted at /hub88/supplier/generic/v2');
 }
 

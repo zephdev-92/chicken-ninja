@@ -51,11 +51,14 @@ Chicken-ninja/
 │           ├── walletClient.js #   Client HTTP signé + mapping RS_ERROR_* → vocabulaire commun
 │           ├── hub88Ledger.js  #   Implémente Ledger via walletClient (bet/win/rollback réels)
 │           ├── sessions.js      #   Map token session → { hub88Token, gameCode, currency, ... }
-│           └── gamesApi.js       #   Routeur Express : /game/url (+ /game/list), /game/round=501
+│           ├── gamesApi.js       #   Routeur Express : /game/url, /game/list, /game/round
+│           │                     #     (+ GET /round/view, page de récap HTML non signée)
+│           └── transactionLog.js  #   Log JSONL append-only (bet/win/rollback) — survit aux
+│                                  #     redémarrages, alimente /game/round (voir plus bas)
 │       # voir HUB88_INTEGRATION.md pour l'architecture complète, le piège de réentrance
 │       # rencontré en rendant Round async, et l'état exact fait/pas fait de l'adaptateur Hub88
-│       # (frontend pas branché, persistance des transactions pas faite — pas encore testé
-│       # dans un vrai navigateur, seulement via npm run hub88-mock-test).
+│       # (reste : onboarding commercial Hub88, /game/round jamais testé contre le vrai
+│       # sandbox Hub88 — seulement mock wallet + navigateur réel en local).
 ├── scripts/rtp-simulation.js # Monte Carlo RTP validator — npm run rtp-sim
 ├── src/
 │   ├── shared/gameConfig.js # DIFFICULTIES + maths pures (multiplicateur, HMAC message, RNG→outcome)

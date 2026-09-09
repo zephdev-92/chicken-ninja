@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Ledger } from '../../core/ledger.js';
 import { toHub88Amount, fromHub88Amount } from './currency.js';
+import { logTransaction } from './transactionLog.js';
 
 // Network-failure policy on top of walletClient's retry mechanism — see
 // HUB88_INTEGRATION.md § Politique réseau Wallet API. A `bet` is never retried:
@@ -38,6 +39,28 @@ export class Hub88Ledger extends Ledger {
     };
   }
 
+  // Records every real Wallet API attempt (success or failure) for reconciliation
+  // and for /game/round (gamesApi.js), which reads this log back — see
+  // HUB88_INTEGRATION.md plan item 7. amount is game-currency units, same scale
+  // roundEngine.js passes in, not Hub88's ×100000 minor units.
+  _log(type, amount, meta, res) {
+    logTransaction({
+      type,
+      transactionUuid:          meta.transactionUuid,
+      referenceTransactionUuid: meta.referenceTransactionUuid ?? null,
+      round:                    meta.roundId ?? null,
+      user:                     this.session.user ?? null,
+      operatorId:                this.session.operatorId ?? null,
+      gameCode:                    this.session.gameCode,
+      currency:                     this.session.currency,
+      amount,
+      roundClosed: meta.roundClosed ?? null,
+      status:      res.ok ? 'ok' : 'error',
+      error:       res.ok ? null : res.error,
+      balance:     res.ok && res.data?.balance != null ? fromHub88Amount(res.data.balance) : null,
+    });
+  }
+
   async getBalance() {
     const res = await this.walletClient.post('/user/balance', this._baseFields());
     if (!res.ok) throw new Error(`Hub88 getBalance failed: ${res.error}`);
@@ -56,6 +79,7 @@ export class Hub88Ledger extends Ledger {
       currency:           this.session.currency,
       amount:               toHub88Amount(amount),
     });
+    this._log('bet', amount, meta, res);
     if (res.ok) return { ok: true, balance: fromHub88Amount(res.data.balance) };
 
     // Hub88's own Wallet API docs (rollback's documented trigger condition):
@@ -93,19 +117,26 @@ export class Hub88Ledger extends Ledger {
       currency:                        this.session.currency,
       amount:                            toHub88Amount(amount),
     }, { retries: WALLET_CORRECTION_RETRIES });
+    this._log('win', amount, meta, res);
     if (!res.ok) return { ok: false, error: res.error };
     return { ok: true, balance: fromHub88Amount(res.data.balance) };
   }
 
-  // meta: { transactionUuid } — the bet's transaction_uuid to undo (roundEngine.js
-  // passes lastBetTransactionUuid as referenceTransactionUuid here for symmetry
-  // with credit's meta shape).
+  // meta: { transactionUuid, roundId } — the bet's transaction_uuid to undo
+  // (roundEngine.js passes lastBetTransactionUuid as referenceTransactionUuid
+  // here for symmetry with credit's meta shape).
   async rollback(meta = {}) {
+    const rollbackTransactionUuid = randomUUID();
     const res = await this.walletClient.post('/transaction/rollback', {
       ...this._baseFields(),
-      transaction_uuid:            randomUUID(),
+      transaction_uuid:            rollbackTransactionUuid,
       reference_transaction_uuid: meta.transactionUuid ?? meta.referenceTransactionUuid,
     }, { retries: WALLET_CORRECTION_RETRIES });
+    this._log('rollback', 0, {
+      transactionUuid:          rollbackTransactionUuid,
+      referenceTransactionUuid: meta.transactionUuid ?? meta.referenceTransactionUuid,
+      roundId:                  meta.roundId ?? null,
+    }, res);
     if (!res.ok) return { ok: false, error: res.error };
     return { ok: true, balance: res.data.balance != null ? fromHub88Amount(res.data.balance) : undefined };
   }

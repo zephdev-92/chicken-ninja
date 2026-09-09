@@ -243,7 +243,7 @@ URL négociée avec Hub88 à l'onboarding (l'exemple de leur doc est
 | Endpoint | Rôle | Champs clés |
 |---|---|---|
 | `POST /game/url` | Retourne l'URL de lancement du jeu | Requis : `platform`, `lobby_url`, `lang`, `operator_id`, `currency`, `country`. Optionnels : `user`, `token` (absents = mode DEMO), `sub_partner_id`, `deposit_url`, `meta`. `game_code` : présent dans tous les exemples de la doc malgré une classification ambiguë "optionnel" — traité comme requis côté implémentation (`gamesApi.js` rejette si absent/mauvaise valeur), prudence justifiée. Réponse succès `{ url }` (200) ; réponse d'erreur observée `{ error }` (404 dans l'exemple doc — nos handlers renvoient 401/400 selon le cas, forme `{error}` identique mais code HTTP exact à reconfirmer en sandbox). |
-| `POST /game/round` | Détails d'une partie (page de récap) | `operator_id` requis, `transaction_uuid` OU `round`+`user`. **Pas implémenté** (501) — bloqué sur la persistance des transactions. |
+| `POST /game/round` | Détails d'une partie (page de récap) | `operator_id` requis, `transaction_uuid` OU `round`+`user`. **✅ Fait** — répond `{ url }` vers une page de récap embarquable (`GET .../round/view`, non signée, lue par le navigateur de l'opérateur), servie depuis `transactionLog.js`. |
 | `POST /game/list` | Liste des jeux qu'on fournit | `operator_id` requis en requête. Réponse : tableau d'objets jeu — requis `name`, `game_code`, `product`, `category`, `enabled`, `platforms`, `blocked_countries`, `url_thumb`, `url_background` ; optionnel `freebet_support`. Notre implémentation envoie tous ces champs, mais `url_thumb`/`url_background` sont vides par défaut (pas d'assets hébergés) et `category`/`product` sont des valeurs provisoires — à confirmer avec Hub88 avant tout `/game/list` réel (voir env vars `HUB88_THUMB_URL`/`HUB88_BACKGROUND_URL`/`HUB88_CATEGORY`). |
 
 Règle critique du Core API Flow : **ne jamais accepter d'appel Wallet API tant qu'on n'a
@@ -391,7 +391,7 @@ nécessaire pour l'iframe classique.
    (`signBody`/`verifyBody`, RSA-SHA256, BASE64), plus `generateDevKeyPair()` — un
    helper de dev **uniquement** pour exercer le code avant d'avoir de vraies clés
    échangées avec Hub88 (jamais utilisé pour du vrai trafic).
-2. **Partiel — Endpoints Games API** (`server/platforms/hub88/gamesApi.js`, monté sur
+2. ✅ **Fait — Endpoints Games API** (`server/platforms/hub88/gamesApi.js`, monté sur
    `app` dans `server/index.js` sous `/hub88/supplier/generic/v2` — seulement si les
    variables d'env `HUB88_*` sont toutes présentes, sinon totalement absent des routes) :
    - ✅ `/game/url` : vérifie la signature (clé publique Hub88), rejette `game_code`
@@ -401,9 +401,13 @@ nécessaire pour l'iframe classique.
      Gère le mode DEMO (`user`/`token` absents ou `currency: "XXX"`) en réutilisant
      directement `LocalLedger` — une session démo n'appelle jamais la vraie Wallet API.
    - ✅ `/game/list` : retourne le seul jeu (`game_code` configuré).
-   - ❌ `/game/round` : renvoie `501 not_implemented` — bloqué sur l'absence de
-     persistance des transactions (étape 7 plus bas), répondre honnêtement plutôt que
-     fabriquer une URL.
+   - ✅ `/game/round` : résout `transaction_uuid` OU `round`+`user` contre
+     `transactionLog.js` (étape 7) et répond `{ url }` — un lien vers `GET .../round/view`,
+     une page de récap HTML minimale (tableau bet/win/rollback, sans assets externes)
+     rendue par le même routeur mais **hors** de la vérification de signature (c'est le
+     navigateur de l'opérateur qui l'ouvre, pas Hub88 en backend-to-backend — la
+     signature RSA ne s'applique qu'aux POST). `operator_id` manquant ou round
+     introuvable → `400 { error }`, jamais une URL fabriquée.
 3. ✅ **Fait — `hub88Ledger.js`** (implémente `Ledger`) : `getBalance`/`debit`/`credit`/
    `rollback` via `walletClient.js` (signature sortante, mapping `RS_ERROR_*` →
    vocabulaire commun). Pas de retry/backoff au-delà d'une tentative unique + erreur
@@ -428,9 +432,27 @@ nécessaire pour l'iframe classique.
    Le mock wallet a dû être étoffé pour créditer réellement au rollback (il se
    contentait avant de renvoyer `RS_OK` sans bouger le solde) — sinon ce test n'aurait
    rien vérifié de plus qu'un HTTP 200.
-7. ❌ **Pas fait — Persistance minimale des transactions** (mode Hub88 seulement) : log
-   append-only (`transaction_uuid`, `round`, montant, statut) conservé 4+ mois. Bloque
-   `/game/round` (étape 2) en plus d'être une exigence de conformité en soi.
+7. ✅ **Fait — Persistance minimale des transactions** (mode Hub88 seulement) :
+   `server/platforms/hub88/transactionLog.js` — fichier JSONL append-only (une ligne
+   par appel bet/win/rollback réussi **ou échoué**, avec `transaction_uuid`, `round`,
+   `user`, `operatorId`, montant, statut, erreur éventuelle, solde résultant),
+   rechargé en mémoire (deux index : par `transaction_uuid`, par `round:user`) au
+   démarrage via `initTransactionLog()` (appelé dans `server/index.js` seulement si
+   Hub88 est configuré) — un redémarrage ne perd donc pas la capacité de répondre à
+   `/game/round` pour ce qui a été loggé avant. Écritures synchrones
+   (`appendFileSync`) : Node étant mono-thread, deux appels concurrents ne peuvent
+   jamais s'entrelacer au milieu d'une ligne — pas de file d'attente d'écriture
+   nécessaire. Câblé dans `hub88Ledger.js` (`_log()`, appelé après chaque
+   `debit`/`credit`/`rollback`, succès ou échec — utile pour la réconciliation
+   manuelle mentionnée à l'étape 3). Chemin par défaut `data/hub88-transactions.log`
+   (surchargeable via `HUB88_TRANSACTION_LOG_PATH`), ajouté au `.gitignore` — ce sont
+   de vraies données financières, elles n'ont rien à faire dans git. **Limite
+   assumée** : aucune purge automatique après 4 mois — c'est une politique de
+   rotation de logs à la charge de l'exploitant (logrotate, cron, etc.), pas encore
+   scriptée ici. Débloque `/game/round` (étape 2). Testé dans `hub88-mock-test.js`
+   (`initTransactionLog()` pointé sur un fichier temporaire isolé par run) : logging
+   correct des bet/win, indexation par round+user, bout-en-bout via `/game/round` et
+   la page de récap `/round/view`.
 8. ✅ **Fait — Tests** : `scripts/hub88-mock-test.js` (`npm run hub88-mock-test`) — mock
    in-process de la Wallet API + signature simulée côté "Hub88" pour exercer
    `signature.js`, `gamesApi.js` (`/game/url`, rejet signature invalide, rejet mauvais
@@ -493,6 +515,7 @@ définissent pas) :
 | `HUB88_THUMB_URL` | `url_thumb` requis par `/game/list` — vide par défaut, à héberger avant tout `/game/list` réel |
 | `HUB88_BACKGROUND_URL` | `url_background` requis par `/game/list` — idem |
 | `HUB88_CATEGORY` | `category` de `/game/list` (défaut : `"instant_win"`, provisoire — à confirmer avec Hub88) |
+| `HUB88_TRANSACTION_LOG_PATH` | *(optionnelle)* Chemin du log de transactions (`transactionLog.js`) — défaut `data/hub88-transactions.log` |
 
 Aucune valeur par défaut n'est fournie pour les clés/URL — pas de placeholder qui
 ressemblerait à une vraie config par accident. `server/platforms/hub88/signature.js`
