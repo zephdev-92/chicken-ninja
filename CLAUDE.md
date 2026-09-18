@@ -51,14 +51,19 @@ Chicken-ninja/
 │           ├── walletClient.js #   Client HTTP signé + mapping RS_ERROR_* → vocabulaire commun
 │           ├── hub88Ledger.js  #   Implémente Ledger via walletClient (bet/win/rollback réels)
 │           ├── sessions.js      #   Map token session → { hub88Token, gameCode, currency, ... }
-│           ├── gamesApi.js       #   Routeur Express : /game/url, /game/list, /game/round
-│           │                     #     (+ GET /round/view, page de récap HTML non signée)
-│           └── transactionLog.js  #   Log JSONL append-only (bet/win/rollback) — survit aux
-│                                  #     redémarrages, alimente /game/round (voir plus bas)
+│           ├── transactionLog.js #  Log append-only (JSON Lines, disque) des tx Hub88 — seule
+│           │                     #    chose du repo qui survit à un redémarrage serveur ;
+│           │                     #    instancié une fois dans index.js et injecté (pas un
+│           │                     #    singleton de module) dans hub88Ledger ET gamesApi
+│           └── gamesApi.js       #   Routeur Express : /game/url, /game/list, /game/round
+│                                 #     (+ GET /round/view, page de récap HTML non signée)
 │       # voir HUB88_INTEGRATION.md pour l'architecture complète, le piège de réentrance
-│       # rencontré en rendant Round async, et l'état exact fait/pas fait de l'adaptateur Hub88
-│       # (reste : onboarding commercial Hub88, /game/round jamais testé contre le vrai
-│       # sandbox Hub88 — seulement mock wallet + navigateur réel en local).
+│       # rencontré en rendant Round async, et l'état exact fait/pas fait de l'adaptateur Hub88.
+│       # Fait et testé (mock + navigateur réel via Playwright pour le frontend) : signature,
+│       # /game/url, /game/list, Hub88Ledger, rollback sur déconnexion, persistance des
+│       # transactions, /game/round + /round/view. Pas fait : onboarding commercial Hub88
+│       # (hors code), et rien de tout ça n'a jamais tourné contre le vrai sandbox Hub88 —
+│       # seulement le mock wallet en local.
 ├── scripts/rtp-simulation.js # Monte Carlo RTP validator — npm run rtp-sim
 ├── src/
 │   ├── shared/gameConfig.js # DIFFICULTIES + maths pures (multiplicateur, HMAC message, RNG→outcome)

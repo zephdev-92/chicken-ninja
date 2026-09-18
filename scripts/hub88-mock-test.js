@@ -6,7 +6,7 @@
 import { createServer } from 'http';
 import express from 'express';
 import { randomUUID } from 'crypto';
-import { mkdtempSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -18,13 +18,7 @@ import { createGamesApiRouter } from '../server/platforms/hub88/gamesApi.js';
 import { getHub88Session } from '../server/platforms/hub88/sessions.js';
 import { fromHub88Amount } from '../server/platforms/hub88/currency.js';
 import { Round } from '../server/core/roundEngine.js';
-import { initTransactionLog, getTransaction, getRoundTransactions } from '../server/platforms/hub88/transactionLog.js';
-
-// Isolated temp file per run — never touches a real HUB88_TRANSACTION_LOG_PATH,
-// never leaves residue in the repo. Must happen before anything logs a
-// transaction (hub88Ledger.js lazily inits on first logTransaction() call
-// otherwise, which would silently fall back to the real default path).
-initTransactionLog(join(mkdtempSync(join(tmpdir(), 'chicken-ninja-hub88-test-')), 'transactions.log'));
+import { TransactionLog } from '../server/platforms/hub88/transactionLog.js';
 
 let passed = 0, failed = 0;
 function check(label, cond) {
@@ -120,12 +114,20 @@ await new Promise((resolve) => mockWalletServer.listen(0, resolve));
 const walletBaseUrl = `http://127.0.0.1:${mockWalletServer.address().port}`;
 
 // ── Games API router under test, mounted on its own express app ───────────────
+// The router gets its own throwaway TransactionLog: /game/round reads this back
+// to resolve a round, so it has to be the same instance the Hub88Ledger in the
+// "/game/round + recap page" block below writes to. Kept separate from the
+// restart-persistence block's log so neither test's records pollute the other's.
+const gamesApiLogDir = mkdtempSync(join(tmpdir(), 'chicken-ninja-hub88-gamesapi-'));
+const gamesApiLog    = new TransactionLog(join(gamesApiLogDir, 'transactions.jsonl'));
+
 const gamesApp = express();
 gamesApp.use('/hub88/supplier/generic/v2', createGamesApiRouter({
   hub88PublicKeyPem: theirs.publicKey,
   gameCode:            'chicken_ninja',
   gameName:              'Chicken Ninja',
   launchBaseUrl:           'http://localhost:5173/',
+  transactionLog:            gamesApiLog,
 }));
 const gamesApiServer = createServer(gamesApp);
 await new Promise((resolve) => gamesApiServer.listen(0, resolve));
@@ -307,21 +309,10 @@ console.log('\n── Hub88Ledger — debit/credit/rollback against the mock wal
   const debitRes2 = await ledger.debit(10, { roundId: '4', transactionUuid: betTxId2 });
   check('a fresh bet after the rollback succeeds normally', debitRes2.ok && debitRes2.balance === 90);
 
-  const winTxId2 = randomUUID();
   const winRes = await ledger.credit(25, {
-    roundId: '4', transactionUuid: winTxId2, referenceTransactionUuid: betTxId2, roundClosed: true,
+    roundId: '4', transactionUuid: randomUUID(), referenceTransactionUuid: betTxId2, roundClosed: true,
   });
   check('credit succeeds and returns the new balance', winRes.ok && winRes.balance === 115);
-
-  // transactionLog.js — every real Wallet API call above should have been
-  // persisted and indexed, both by its own transaction_uuid and by round+user.
-  {
-    const betRecord = getTransaction(betTxId2);
-    check('the bet was logged with the right type/amount/status', betRecord?.type === 'bet' && betRecord.amount === 10 && betRecord.status === 'ok');
-    check('the bet was logged against the session\'s user', betRecord?.user === 'player-1');
-    const round4 = getRoundTransactions('4', 'player-1');
-    check('round 4\'s log contains both the bet and the win, in order', round4.length === 2 && round4[0].type === 'bet' && round4[1].type === 'win');
-  }
 
   const bustRes = await ledger.credit(0, {
     roundId: '5', transactionUuid: randomUUID(), referenceTransactionUuid: randomUUID(), roundClosed: true,
@@ -348,44 +339,6 @@ console.log('\n── Hub88Ledger — debit/credit/rollback against the mock wal
     'rolling back an unknown transaction is rejected as transaction_not_found',
     !ghostRollbackRes.ok && ghostRollbackRes.error === 'transaction_not_found',
   );
-}
-
-// ── Games API — /game/round + recap page ───────────────────────────────────
-// Round '4' (from the block above) has a real bet+win pair logged under
-// user 'player-1' — exercises /game/round end to end against the persisted
-// transactionLog.js, not a mock.
-console.log('\n── Games API — /game/round + recap page ──');
-{
-  const signedPost = async (body) => {
-    const bodyBytes = Buffer.from(JSON.stringify(body));
-    const signature = signBody(bodyBytes, theirs.privateKey);
-    return fetch(`${gamesApiBaseUrl}/hub88/supplier/generic/v2/game/round`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Hub88-Signature': signature },
-      body: bodyBytes,
-    });
-  };
-
-  const byRoundUserRes = await signedPost({ operator_id: 42, round: '4', user: 'player-1' });
-  const byRoundUserBody = await byRoundUserRes.json();
-  check('/game/round (round+user) responds 200 with a url', byRoundUserRes.status === 200 && typeof byRoundUserBody.url === 'string');
-
-  const betTxIdForRound4 = getRoundTransactions('4', 'player-1')[0].transactionUuid;
-  const byTxRes = await signedPost({ operator_id: 42, transaction_uuid: betTxIdForRound4 });
-  const byTxBody = await byTxRes.json();
-  check('/game/round (transaction_uuid) resolves the same round', byTxRes.status === 200 && byTxBody.url === byRoundUserBody.url);
-
-  const missingRes = await signedPost({ operator_id: 42, round: 'no-such-round', user: 'nobody' });
-  check('/game/round for an unknown round reports transaction_not_found (400)', missingRes.status === 400 && (await missingRes.json()).error === 'transaction_not_found');
-
-  const noOperatorRes = await signedPost({ round: '4', user: 'player-1' });
-  check('/game/round without operator_id is rejected (400)', noOperatorRes.status === 400);
-
-  const recapRes = await fetch(byRoundUserBody.url);
-  const recapHtml = await recapRes.text();
-  check('the recap page loads over plain GET, no signature required', recapRes.status === 200);
-  check('the recap page lists both the bet and the win', recapHtml.includes('>bet<') && recapHtml.includes('>win<'));
-  check('the recap page shows the bet amount', recapHtml.includes('10.00 EUR'));
 }
 
 // ── Round.abandon() — narrow rollback-only-if-step-0 policy ───────────────────
@@ -480,7 +433,124 @@ console.log('\n── Network-failure policy (HUB88_INTEGRATION.md § Politique 
   }
 }
 
+// ── TransactionLog — persistence (HUB88_INTEGRATION.md plan item 7) ──────────
+console.log('\n── TransactionLog — durable across a simulated restart ──');
+{
+  const logDir  = mkdtempSync(join(tmpdir(), 'chicken-ninja-hub88-txlog-'));
+  const logPath = join(logDir, 'transactions.jsonl');
+
+  const walletClient = new WalletClient({ baseUrl: walletBaseUrl, privateKeyPem: ours.privateKey });
+  const token = 'txlog-player';
+  walletBalances.set(token, 10000000); // 100.00 EUR
+  const session = { gameCode: 'chicken_ninja', hub88Token: token, currency: 'EUR', user: 'player-txlog' };
+
+  const log1 = new TransactionLog(logPath);
+  const ledger = new Hub88Ledger(walletClient, session, log1);
+  const round = new Round(ledger);
+
+  const { data: started } = await round.startRound(10, 'easy');
+  check('setup: round starts against the mock wallet', !!started);
+  const betUuid = round.lastBetTransactionUuid;
+
+  const betRecord = log1.get(betUuid);
+  check('bet is recorded with status ok', betRecord?.status === 'ok' && betRecord?.type === 'bet');
+  check('bet record carries the game-currency amount, not Hub88\'s ×100000 units', betRecord?.amount === 10);
+  check('bet record is indexed under its round', log1.forRound(String(started.round)).some(r => r.transactionUuid === betUuid));
+
+  // Settle the round to get a 'win'-type record — via step_() then, if it
+  // survived, an explicit cashOut(). Outcome-agnostic on purpose (same spirit as
+  // the Round.abandon() case B test above): a bust already settles the round
+  // through its own credit(0, ...) call inside step_(), so cashOut() only runs
+  // when there's still an active round left to close.
+  const stepRes = await round.step_();
+  check('setup: step_() resolves against the mock wallet', !!stepRes.data);
+  if (round.status === 'active') {
+    const { data: cashoutData } = await round.cashOut();
+    check('setup: cashOut settles the round', !!cashoutData);
+  } else {
+    check('setup: bust already settled the round via step_()', round.status === 'busted');
+  }
+
+  const winRecord = log1.forRound(String(started.round)).find(r => r.type === 'win');
+  check('win is recorded and references the bet it settles', winRecord?.status === 'ok' && winRecord?.referenceTransactionUuid === betUuid);
+
+  // A failed attempt must be logged too — reconciliation needs to see rejections,
+  // not just successful transactions.
+  const overdraftUuid = randomUUID();
+  await ledger.debit(999999, { roundId: 'overdraft-round', transactionUuid: overdraftUuid });
+  const failedRecord = log1.get(overdraftUuid);
+  check('a rejected debit is logged with status failed and its error code', failedRecord?.status === 'failed' && failedRecord?.error === 'insufficient_balance');
+
+  // Simulate a server restart: a brand-new TransactionLog instance reading the
+  // same file must reconstruct the exact same index without the process (or the
+  // ledger/round above) still being alive — this is the whole point of writing to
+  // disk instead of keeping the log purely in memory like `accounts`/`sessions`.
+  const log2 = new TransactionLog(logPath);
+  check('a fresh TransactionLog over the same file recovers the bet record', log2.get(betUuid)?.transactionUuid === betUuid);
+  check('...and the round index', log2.forRound(String(started.round)).length === log1.forRound(String(started.round)).length);
+  check('...and the failed attempt too', log2.get(overdraftUuid)?.status === 'failed');
+
+  rmSync(logDir, { recursive: true, force: true });
+}
+
+// ── Games API — /game/round + recap page ─────────────────────────────────────
+// Plays a real round through a Hub88Ledger wired to the router's own
+// TransactionLog, then asks /game/round about it — end to end against persisted
+// records, no mocking of the log itself.
+console.log('\n── Games API — /game/round + recap page ──');
+{
+  const walletClient = new WalletClient({ baseUrl: walletBaseUrl, privateKeyPem: ours.privateKey });
+  const token = 'gamesapi-player';
+  walletBalances.set(token, 10000000); // 100.00 EUR
+  const session = { gameCode: 'chicken_ninja', hub88Token: token, currency: 'EUR', user: 'player-recap' };
+
+  const round = new Round(new Hub88Ledger(walletClient, session, gamesApiLog));
+  const { data: started } = await round.startRound(10, 'easy');
+  const roundId = String(started.round);
+  const betUuid = round.lastBetTransactionUuid;
+  await round.step_();
+  if (round.status === 'active') await round.cashOut();
+
+  const signedPost = async (body) => {
+    const bodyBytes = Buffer.from(JSON.stringify(body));
+    return fetch(`${gamesApiBaseUrl}/hub88/supplier/generic/v2/game/round`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':       'application/json',
+        'X-Hub88-Signature': signBody(bodyBytes, theirs.privateKey),
+      },
+      body: bodyBytes,
+    });
+  };
+
+  const byRoundUser     = await signedPost({ operator_id: 42, round: roundId, user: 'player-recap' });
+  const byRoundUserBody = await byRoundUser.json();
+  check('/game/round (round+user) responds 200 with a url', byRoundUser.status === 200 && typeof byRoundUserBody.url === 'string');
+
+  const byTx     = await signedPost({ operator_id: 42, transaction_uuid: betUuid });
+  const byTxBody = await byTx.json();
+  check('/game/round (transaction_uuid) resolves to the same round url', byTx.status === 200 && byTxBody.url === byRoundUserBody.url);
+
+  const unknown = await signedPost({ operator_id: 42, round: 'no-such-round', user: 'nobody' });
+  check('/game/round for an unknown round reports transaction_not_found (400)', unknown.status === 400 && (await unknown.json()).error === 'transaction_not_found');
+
+  const noOperator = await signedPost({ round: roundId, user: 'player-recap' });
+  check('/game/round without operator_id is rejected (400)', noOperator.status === 400);
+
+  // The recap page is browser-facing: no signature, no body — it must not be
+  // caught by the router's POST-only signature middleware.
+  const recap     = await fetch(byRoundUserBody.url);
+  const recapHtml = await recap.text();
+  check('the recap page loads over plain GET, no signature required', recap.status === 200);
+  check('the recap page lists both the bet and the settlement', recapHtml.includes('>bet<') && recapHtml.includes('>win<'));
+  check('the recap page shows the bet amount in game currency', recapHtml.includes('10.00 EUR'));
+
+  const otherPlayer = await fetch(byRoundUserBody.url.replace('player-recap', 'someone-else'));
+  check('the recap page never leaks another player\'s round (404)', otherPlayer.status === 404);
+}
+
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);
 mockWalletServer.close();
 gamesApiServer.close();
+rmSync(gamesApiLogDir, { recursive: true, force: true });
 process.exit(failed === 0 ? 0 : 1);

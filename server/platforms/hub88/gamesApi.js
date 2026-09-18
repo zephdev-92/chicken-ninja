@@ -2,7 +2,6 @@ import { Router, raw } from 'express';
 import { randomUUID } from 'crypto';
 import { verifyBody } from './signature.js';
 import { createHub88Session } from './sessions.js';
-import { getTransaction, getRoundTransactions } from './transactionLog.js';
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({
@@ -31,30 +30,43 @@ export function createGamesApiRouter({
   // these arrive as explicit params with honest placeholders rather than silently
   // baked-in fake URLs — must be real before this ever reaches a real /game/list.
   thumbUrl = '', backgroundUrl = '', category = 'instant_win',
+  // The process-wide TransactionLog (transactionLog.js), injected the same way
+  // Ledger is injected into Round — /game/round reads it back to answer "what
+  // happened in this round". Optional: without one, /game/round can only answer
+  // honestly with 501, which is what it did before the log existed.
+  transactionLog = null,
 }) {
   const router = Router();
 
   // Raw bytes, not express.json()'s parsed object — the signature covers the
   // exact bytes Hub88 sent, and re-serializing a parsed object isn't guaranteed
-  // to reproduce them byte-for-byte (key order, whitespace). Only applied to
-  // POST (the signed Hub88-to-us Games API calls) — GET /round/view below is
-  // the embeddable recap page a browser/iframe opens directly, with no signed
-  // body to verify.
+  // to reproduce them byte-for-byte (key order, whitespace).
+  //
+  // POST only: every signed Hub88-to-us Games API call is a POST. GET /round/view
+  // below is the recap page an operator's browser/iframe opens directly — it has
+  // no body and carries no X-Hub88-Signature, so running it through this would
+  // reject it 401 every time. It is read-only and exposes nothing the operator
+  // didn't already receive from /game/round.
   router.use((req, res, next) => {
     if (req.method !== 'POST') return next();
     raw({ type: 'application/json' })(req, res, (err) => {
       if (err) return res.status(400).json({ error: 'wrong_syntax' });
-      const signature = req.get('X-Hub88-Signature');
-      if (!verifyBody(req.body, signature, hub88PublicKeyPem)) {
-        return res.status(401).json({ error: 'invalid_signature' });
-      }
-      try {
-        req.body = JSON.parse(req.body.toString('utf8'));
-      } catch {
-        return res.status(400).json({ error: 'wrong_syntax' });
-      }
       next();
     });
+  });
+
+  router.use((req, res, next) => {
+    if (req.method !== 'POST') return next();
+    const signature = req.get('X-Hub88-Signature');
+    if (!verifyBody(req.body, signature, hub88PublicKeyPem)) {
+      return res.status(401).json({ error: 'invalid_signature' });
+    }
+    try {
+      req.body = JSON.parse(req.body.toString('utf8'));
+    } catch {
+      return res.status(400).json({ error: 'wrong_syntax' });
+    }
+    next();
   });
 
   router.post('/game/url', (req, res) => {
@@ -111,27 +123,28 @@ export function createGamesApiRouter({
     }]);
   });
 
-  // Per docs.hub88.io's Supplier Games API spec: success is { url } — a link to
-  // an embeddable round-details page, not raw transaction JSON. Backed by
-  // transactionLog.js (see HUB88_INTEGRATION.md plan item 7), populated by
-  // hub88Ledger.js on every bet/win/rollback call.
+  // Per Hub88's Supplier Games API spec, success is { url } — a link to an
+  // embeddable round-details page, not raw transaction JSON. Backed by
+  // transactionLog.js (HUB88_INTEGRATION.md plan item 7), which hub88Ledger.js
+  // populates on every bet/win/rollback call.
   router.post('/game/round', (req, res) => {
     const { operator_id: operatorId, transaction_uuid: transactionUuid, round, user } = req.body;
     if (!operatorId) return res.status(400).json({ error: 'wrong_syntax' });
+    if (!transactionLog) return res.status(501).json({ error: 'not_implemented' });
 
+    // Hub88 may identify the round either by one of its transactions or by
+    // (round, user) directly — resolve both to the same list of records.
     let records;
     if (transactionUuid) {
-      const record = getTransaction(transactionUuid);
-      records = record ? getRoundTransactions(record.round, record.user) : [];
+      const record = transactionLog.get(transactionUuid);
+      records = record ? transactionLog.forRound(record.round, record.user) : [];
     } else if (round && user) {
-      records = getRoundTransactions(round, user);
+      records = transactionLog.forRound(round, user);
     } else {
       return res.status(400).json({ error: 'wrong_syntax' });
     }
 
-    if (records.length === 0) {
-      return res.status(400).json({ error: 'transaction_not_found' });
-    }
+    if (records.length === 0) return res.status(400).json({ error: 'transaction_not_found' });
 
     const url = new URL(`${req.protocol}://${req.get('host')}${req.baseUrl}/round/view`);
     url.searchParams.set('round', records[0].round);
@@ -145,15 +158,16 @@ export function createGamesApiRouter({
   router.get('/round/view', (req, res) => {
     const { round, user } = req.query;
     if (!round || !user) return res.status(400).send('Missing round or user');
+    if (!transactionLog) return res.status(404).send('Round not found');
 
-    const records = getRoundTransactions(round, user);
+    const records = transactionLog.forRound(round, user);
     if (records.length === 0) return res.status(404).send('Round not found');
 
     const rows = records.map((r) => `
       <tr>
-        <td>${escapeHtml(r.ts)}</td>
+        <td>${escapeHtml(r.createdAt)}</td>
         <td>${escapeHtml(r.type)}</td>
-        <td>${Number(r.amount).toFixed(2)} ${escapeHtml(r.currency ?? '')}</td>
+        <td>${r.amount != null ? Number(r.amount).toFixed(2) : ''} ${escapeHtml(r.currency ?? '')}</td>
         <td>${escapeHtml(r.status)}</td>
         <td>${escapeHtml(r.error ?? '')}</td>
         <td>${r.balance != null ? Number(r.balance).toFixed(2) : ''}</td>

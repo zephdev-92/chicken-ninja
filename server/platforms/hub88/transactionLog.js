@@ -1,82 +1,82 @@
 import { appendFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-// Append-only, durable transaction log for the Hub88 real-money path — the
-// standalone platform needs none of this (nothing to reconcile, no operator
-// audit obligation). See HUB88_INTEGRATION.md plan item 7: Hub88's Wallet API
-// requires transactions kept 4+ months, and /game/round (gamesApi.js) needs to
-// answer "what happened in this round" without fabricating an answer.
+// Minimal durable transaction log for the Hub88 path — see HUB88_INTEGRATION.md plan
+// item 7. Append-only JSON Lines file on disk, rebuilt into an in-memory index at
+// startup for fast lookups. This is the only thing in the whole app that survives a
+// server restart: `accounts`, `sessions` (server/platforms/hub88/sessions.js) and
+// everything else stay in-memory-only by design (see CLAUDE.md § Solde
+// server-authoritative) — but a transaction log that vanished on restart would defeat
+// its own purpose (reconciliation, /game/round), so this one is deliberately different.
 //
-// One JSON object per line (JSONL), one file for the process's lifetime. Kept
-// deliberately as a flat file rather than a DB — this repo has none yet
-// (server/index.js's `accounts` Map is the same posture) and volume here is
-// low (one line per bet/win/rollback call, not per request). Appends are
-// synchronous: Node is single-threaded, so `appendFileSync` calls from
-// concurrent async handlers can never interleave mid-line — the simplest way
-// to guarantee well-formed JSONL without a write queue.
+// Retention: Hub88's Wallet API requires transactions kept 4+ months. Nothing here ever
+// deletes an entry, so that requirement is satisfied unconditionally — there's no purge
+// logic to write, test, or get wrong. Rotating/archiving this file after 4+ months is an
+// ops concern for whoever deploys this, not application logic.
 //
-// Retention: nothing here auto-purges after 4 months — that's a log-rotation
-// concern for whoever operates the process (logrotate, a cron trim, etc.),
-// deliberately not invented here. This module only guarantees the data is
-// durable and queryable for as long as it's kept on disk.
+// Scope: only the Hub88 path calls this. The standalone platform's LocalLedger has no
+// external settlement system to reconcile against, so it has nothing to log here.
+export class TransactionLog {
+  constructor(filePath) {
+    this.filePath = filePath;
+    this.byUuid   = new Map(); // transaction_uuid -> record
+    this.byRound  = new Map(); // round -> record[]
+    this._load();
+  }
 
-const byTransactionUuid = new Map(); // transaction_uuid -> record
-const byRoundUser       = new Map(); // `${round}:${user}` -> record[]
-
-let logPath   = null;
-let dirReady  = false;
-
-function indexRecord(record) {
-  byTransactionUuid.set(record.transactionUuid, record);
-  const key  = `${record.round}:${record.user}`;
-  const list = byRoundUser.get(key);
-  if (list) list.push(record);
-  else byRoundUser.set(key, [record]);
-}
-
-// Explicit init, not an import-time side effect — lets server/index.js pick
-// the real path (HUB88_TRANSACTION_LOG_PATH or the default) once Hub88 is
-// actually configured, and lets hub88-mock-test.js point at a throwaway temp
-// file instead. Replays whatever's already on disk so a restart doesn't lose
-// query-ability for rounds logged before it. Safe to call again with a
-// different path — clears the in-memory index first.
-export function initTransactionLog(path = process.env.HUB88_TRANSACTION_LOG_PATH || 'data/hub88-transactions.log') {
-  logPath  = path;
-  dirReady = false;
-  byTransactionUuid.clear();
-  byRoundUser.clear();
-  if (!existsSync(logPath)) return;
-  for (const line of readFileSync(logPath, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      indexRecord(JSON.parse(line));
-    } catch (err) {
-      console.error(`[hub88 transactionLog] skipping unparseable line in ${logPath}:`, err.message);
+  _load() {
+    if (!existsSync(this.filePath)) return;
+    const lines = readFileSync(this.filePath, 'utf8').split('\n').filter(Boolean);
+    for (const line of lines) {
+      // A truncated last line (process killed mid-write) shouldn't take the whole
+      // log — and therefore the server boot — down with it. Skip and move on.
+      try { this._index(JSON.parse(line)); } catch { /* corrupt line, skip */ }
     }
   }
-}
 
-// record: { type: 'bet'|'win'|'rollback', transactionUuid, referenceTransactionUuid,
-//           round, user, operatorId, gameCode, currency, amount, roundClosed,
-//           status: 'ok'|'error', error, balance }
-// amount/balance are game-currency units (not Hub88's ×100000 minor units) —
-// this log is for human/operator review, not another Wallet API call.
-export function logTransaction(record) {
-  if (!logPath) initTransactionLog();
-  const full = { ts: new Date().toISOString(), ...record };
-  if (!dirReady) {
-    mkdirSync(dirname(logPath), { recursive: true });
-    dirReady = true;
+  _index(record) {
+    this.byUuid.set(record.transactionUuid, record);
+    if (!this.byRound.has(record.round)) this.byRound.set(record.round, []);
+    this.byRound.get(record.round).push(record);
   }
-  appendFileSync(logPath, `${JSON.stringify(full)}\n`);
-  indexRecord(full);
-  return full;
-}
 
-export function getTransaction(transactionUuid) {
-  return byTransactionUuid.get(transactionUuid) ?? null;
-}
+  // One entry per Wallet API attempt (bet/win/rollback), success or failure — a
+  // failed attempt is exactly the kind of thing reconciliation needs to see, not
+  // just the successful ones. `amount`/`currency` are game-currency units (the
+  // same scale roundEngine.js and Ledger use), not Hub88's ×100000 integers —
+  // this log reads naturally next to the rest of the app, the Hub88-specific
+  // encoding is hub88Ledger.js/currency.js's concern alone.
+  // `balance` is the wallet balance Hub88 reported *after* the call (null on a
+  // failed one, since there's nothing authoritative to record) — kept because the
+  // /round/view recap page (gamesApi.js) shows it, and re-deriving it from amounts
+  // alone would be a guess: the same player's wallet moves outside this game too.
+  record({
+    transactionUuid, referenceTransactionUuid = null, round, type, amount,
+    currency, user, gameCode, status, error = null, balance = null,
+  }) {
+    const entry = {
+      transactionUuid, referenceTransactionUuid, round, type, amount, currency,
+      user, gameCode, status, error, balance, createdAt: new Date().toISOString(),
+    };
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    appendFileSync(this.filePath, JSON.stringify(entry) + '\n', 'utf8');
+    this._index(entry);
+    return entry;
+  }
 
-export function getRoundTransactions(round, user) {
-  return (byRoundUser.get(`${round}:${user}`) ?? []).slice().sort((a, b) => a.ts.localeCompare(b.ts));
+  get(transactionUuid) {
+    return this.byUuid.get(transactionUuid) ?? null;
+  }
+
+  // `user` is optional but is what /game/round actually asks with: a round id is
+  // only unique per operator+player, so scoping by user is what keeps one player's
+  // recap page from ever showing another's transactions. Sorted chronologically —
+  // the index preserves append order, but a restart replays the file, so sorting
+  // explicitly keeps the order a caller sees independent of how it was loaded.
+  forRound(round, user) {
+    return (this.byRound.get(round) ?? [])
+      .filter((r) => user == null || r.user === user)
+      .slice()
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
 }

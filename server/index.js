@@ -8,7 +8,7 @@ import { createGamesApiRouter } from './platforms/hub88/gamesApi.js';
 import { WalletClient } from './platforms/hub88/walletClient.js';
 import { Hub88Ledger } from './platforms/hub88/hub88Ledger.js';
 import { getHub88Session } from './platforms/hub88/sessions.js';
-import { initTransactionLog } from './platforms/hub88/transactionLog.js';
+import { TransactionLog } from './platforms/hub88/transactionLog.js';
 
 const app        = express();
 const httpServer = createServer(app);
@@ -25,15 +25,25 @@ const hub88Config = (() => {
     HUB88_PRIVATE_KEY, HUB88_REMOTE_PUBLIC_KEY, HUB88_WALLET_BASE_URL,
     HUB88_GAME_CODE, HUB88_GAME_NAME, HUB88_LAUNCH_BASE_URL,
     HUB88_THUMB_URL, HUB88_BACKGROUND_URL, HUB88_CATEGORY,
+    HUB88_TRANSACTION_LOG_PATH,
   } = process.env;
   if (!HUB88_PRIVATE_KEY || !HUB88_REMOTE_PUBLIC_KEY || !HUB88_WALLET_BASE_URL
     || !HUB88_GAME_CODE || !HUB88_LAUNCH_BASE_URL) {
     return null;
   }
+  // One shared, append-only log for every Hub88 session on this process — see
+  // transactionLog.js. Default path is relative to the process cwd (this file is
+  // run as `node server/index.js` from the repo root, see package.json scripts).
+  // Bound to a local first because both the Ledger (writes) and the Games API
+  // router (/game/round reads it back) need the same instance.
+  const transactionLog = new TransactionLog(HUB88_TRANSACTION_LOG_PATH || 'data/hub88-transactions.jsonl');
+
   return {
     walletClient: new WalletClient({ baseUrl: HUB88_WALLET_BASE_URL, privateKeyPem: HUB88_PRIVATE_KEY }),
+    transactionLog,
     gamesApiRouter: createGamesApiRouter({
       hub88PublicKeyPem: HUB88_REMOTE_PUBLIC_KEY,
+      transactionLog,
       gameCode:            HUB88_GAME_CODE,
       gameName:              HUB88_GAME_NAME || 'Chicken Ninja',
       launchBaseUrl:           HUB88_LAUNCH_BASE_URL,
@@ -49,10 +59,6 @@ const hub88Config = (() => {
 
 if (hub88Config) {
   app.use('/hub88/supplier/generic/v2', hub88Config.gamesApiRouter);
-  // Replays HUB88_TRANSACTION_LOG_PATH (or its default) into memory so
-  // /game/round can answer for rounds logged before this boot — see
-  // transactionLog.js and HUB88_INTEGRATION.md plan item 7.
-  initTransactionLog();
   console.log('[server] Hub88 Games API mounted at /hub88/supplier/generic/v2');
 }
 
@@ -145,7 +151,7 @@ io.on('connection', async (socket) => {
     // exactly the standalone experience (fake balance) under a Hub88-issued token.
     ledger = hub88Session.isDemo
       ? new LocalLedger(new PlayerAccount())
-      : new Hub88Ledger(hub88Config.walletClient, hub88Session);
+      : new Hub88Ledger(hub88Config.walletClient, hub88Session, hub88Config.transactionLog);
   } else {
     // Resolve (or mint) the anonymous player identity for this connection —
     // never trust a client-supplied playerId without re-checking its signature.

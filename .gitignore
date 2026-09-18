@@ -8,6 +8,7 @@ dist/
 # Dev/verification screenshots dropped at repo root
 /*.png
 
-# Hub88 transaction log (server/platforms/hub88/transactionLog.js) — runtime
-# data, not code; real financial transaction records don't belong in git.
+# Hub88 transaction log (server/platforms/hub88/transactionLog.js, default
+# HUB88_TRANSACTION_LOG_PATH) — runtime data, not code; real financial
+# transaction records don't belong in git.
 /data/
