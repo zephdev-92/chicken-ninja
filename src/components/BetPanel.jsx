@@ -56,8 +56,10 @@ export default function BetPanel({
           style={{
             ...skinStyle('beige', { disabled: !isIdleLike }),
             cursor: isIdleLike ? 'text' : 'not-allowed',
-            width: '56px', minWidth: 0, minHeight: '44px', flexShrink: 1,
-            padding: '5px 6px', borderRadius: '10px',
+            // Sized for 3 digits (max bet 200) next to the native spinner arrows
+            width: '72px', minWidth: 0, minHeight: '44px', flexShrink: 1,
+            padding: '5px 4px 5px 8px', borderRadius: '10px',
+            fontVariantNumeric: 'tabular-nums',
             color: theme.textPrimary, fontSize: '14px',
           }}
         />
