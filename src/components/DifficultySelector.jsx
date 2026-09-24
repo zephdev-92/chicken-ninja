@@ -1,11 +1,5 @@
 import { theme } from '../theme';
-
-const ACCENT = {
-  easy:     '#2e8b57',
-  medium:   '#f0a828',
-  hard:     '#c0392b',
-  hardcore: '#8b1a1a',
-};
+import { skinStyle } from './buttonSkin';
 
 export default function DifficultySelector({ difficultyKeys, difficulties, selected, onSelect, disabled }) {
   return (
@@ -13,29 +7,28 @@ export default function DifficultySelector({ difficultyKeys, difficulties, selec
       {difficultyKeys.map((key) => {
         const d = difficulties[key];
         const active = key === selected;
-        const color = ACCENT[key] ?? theme.accent;
         return (
           <button
             key={key}
             onClick={() => onSelect(key)}
             disabled={disabled}
             style={{
+              ...skinStyle('level', { disabled: disabled && !active }),
+              // Zoomed in past `cover` so the target rings read larger behind the label
+              backgroundSize: 'auto 150%',
+              ...(active && {
+                boxShadow: `0 0 0 3px ${theme.accentGold}, 0 3px 0 3px ${theme.accentDeep}`,
+              }),
+              textShadow: `0 0 3px ${theme.surface}, 0 0 2px ${theme.surface}`,
               flex: '1 1 0',
-              minHeight: '44px', boxSizing: 'border-box',
+              minHeight: '44px',
               padding: '9px 4px',
-              borderRadius: '9px',
-              border: `1px solid ${active ? color : theme.border}`,
-              background: active ? `${color}22` : theme.surfaceAlt,
-              color: active ? color : theme.textMuted,
-              fontWeight: 700,
-              fontSize: '11px',
+              fontSize: '12px',
               whiteSpace: 'nowrap',
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              opacity: disabled && !active ? 0.5 : 1,
-              transition: 'background 150ms ease, border-color 150ms ease, opacity 150ms ease',
+              transition: 'opacity 150ms ease',
             }}
           >
-            {d.label} <span style={{ fontWeight: 400, color: active ? color : theme.textMuted }}>{Math.round(d.deathChance * 100)}%</span>
+            {d.label} {Math.round(d.deathChance * 100)}%
           </button>
         );
       })}
