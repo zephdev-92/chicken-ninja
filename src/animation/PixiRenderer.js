@@ -42,6 +42,12 @@ const BADGE_SIZE  = 54;     // multiplier disc drawn on each tile, replaces the 
 const TOP_CLEARANCE = CHICKEN_H + HOP_ARC + 30; // room above the road for the chicken hop + wall decor
 const REFERENCE_H     = 380; // canvas height the road/chicken/tiles were originally sized for
 const MAX_SCENE_SCALE = 1.5; // cap so the scene doesn't blow up into an unreadable zoom on very tall canvases
+// Fullscreen: on wide canvases the cap above is lifted proportionally to the width
+// (MAX_SCENE_SCALE at <= SCALE_REF_W px wide, up to WIDE_MAX_SCENE_SCALE), so a
+// desktop/TV screen shows ~8 big lanes instead of a tiny road lost in sand. Phones
+// (narrower than SCALE_REF_W) keep exactly the old MAX_SCENE_SCALE behaviour.
+const SCALE_REF_W          = 800;
+const WIDE_MAX_SCENE_SCALE = 2.4;
 const TRACK_Y_EXTRA    = 36; // nudges the whole road scene down off the safety-clearance line, more breathing room above without needing to fully center it
 
 // road-decor proportions (training posts, start/finish gates) are pinned to the chicken's
@@ -163,7 +169,8 @@ export class PixiRenderer {
     // the reference design height, so it fills the flex space App.jsx gives it instead of
     // sitting as a fixed-size band centered in a sea of cream. Uniform (not just vertical)
     // so proportions/art stay undistorted — lanes just get a bit larger, not squashed.
-    const sceneScale = clamp(height / REFERENCE_H, 1, MAX_SCENE_SCALE);
+    const maxScale = clamp(width / SCALE_REF_W, MAX_SCENE_SCALE, WIDE_MAX_SCENE_SCALE);
+    const sceneScale = clamp(height / REFERENCE_H, 1, maxScale);
     this._sceneScale = sceneScale;
     // Track sits just below its safety clearance (not centered) — centering left the
     // road floating mid-canvas with an unavoidable dead gap above it (chicken height is
@@ -174,8 +181,20 @@ export class PixiRenderer {
     this._trackY = clamp(TOP_CLEARANCE * sceneScale + TRACK_Y_EXTRA, TOP_CLEARANCE, height - 30);
     // +2.5 tile-steps of slack (not +1) so the finish torii past the last lane
     // is fully revealed once the chicken reaches the last lane, not clipped off-screen.
-    this._camMin = width - (DEFAULT_LANES + 2.5) * TILE_STEP * sceneScale - width * 0.1;
     this._camMax = width * VIEW_ANCHOR;
+    // Ultra-wide canvases can fit the whole route on screen — never let camMin pass
+    // camMax, or clamp() would pin the camera to the far end from the very first lane.
+    this._camMin = Math.min(this._camMax, width - (DEFAULT_LANES + 2.5) * TILE_STEP * sceneScale - width * 0.1);
+  }
+
+  // Horizontal extent (track-local) the sand must cover so no bare canvas shows at
+  // either screen edge, whatever the camera position — on a wide screen the left edge
+  // at camMax and the right edge at camMin both reach past the route itself.
+  _groundExtent() {
+    const s = this._sceneScale;
+    const startX = Math.min(-TILE_STEP * 2, -this._camMax / s - TILE_STEP);
+    const endX   = Math.max((DEFAULT_LANES + 4) * TILE_STEP, (this._w - this._camMin) / s + TILE_STEP);
+    return { startX, endX };
   }
 
   async init(containerEl, width, height) {
@@ -381,8 +400,7 @@ export class PixiRenderer {
   // tileScale is divided by sceneScale to keep the same on-screen tile density now that
   // this sits inside `track`'s own scale transform instead of directly on `stage`.
   _buildBackground(track, height) {
-    const groundStartX = -TILE_STEP * 2;
-    const groundEndX = (DEFAULT_LANES + 4) * TILE_STEP;
+    const { startX: groundStartX, endX: groundEndX } = this._groundExtent();
     const topLocal = -this._trackY / this._sceneScale;
     const bottomLocal = (height - this._trackY) / this._sceneScale;
     const ground = new TilingSprite({
@@ -687,6 +705,9 @@ export class PixiRenderer {
     if (this._ground) {
       const topLocal = -this._trackY / this._sceneScale;
       const bottomLocal = (height - this._trackY) / this._sceneScale;
+      const { startX, endX } = this._groundExtent();
+      this._ground.x = startX;
+      this._ground.width = endX - startX;
       this._ground.y = topLocal;
       this._ground.height = bottomLocal - topLocal;
       this._ground.tileScale.set(SAND_TILE_SCALE / this._sceneScale);

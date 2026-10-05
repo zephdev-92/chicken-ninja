@@ -23,6 +23,7 @@ function PressButton({ onClick, disabled, style, children }) {
 }
 
 export default function BetPanel({
+  wide = false,
   bet, setBet, betError, minBet, maxBet, balance,
   status, isIdleLike, step, multiplier, activeBet, actionPending, roundAnimating,
   onStart, onStep, onCashOut,
@@ -36,7 +37,9 @@ export default function BetPanel({
   const canCashOut = status === 'active' && step >= 1 && !actionPending;
 
   return (
-    <div style={{ display: 'grid', gap: '8px' }}>
+    // Wide screens: bet row and action buttons side by side on a single line, error
+    // message spanning underneath both (gridColumn 1 / -1).
+    <div style={{ display: 'grid', gap: wide ? '8px 16px' : '8px', ...(wide && { gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'center' }) }}>
       <div
         style={{
           borderRadius: '12px', border: `1px solid ${theme.borderSoft}`,
@@ -125,7 +128,7 @@ export default function BetPanel({
       </div>
 
       {betError && (
-        <div style={{ color: theme.danger, fontSize: '12px', paddingLeft: '4px' }}>{betError}</div>
+        <div style={{ color: theme.danger, fontSize: '12px', paddingLeft: '4px', gridColumn: '1 / -1' }}>{betError}</div>
       )}
     </div>
   );
