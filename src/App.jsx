@@ -3,12 +3,19 @@ import Header from './components/Header';
 import CashoutFeed from './components/CashoutFeed';
 import GameCanvas from './components/GameCanvas';
 import DifficultySelector from './components/DifficultySelector';
-import BetPanel from './components/BetPanel';
+import { BetControls, ActionButtons } from './components/BetPanel';
+import { WOOD, frame, woodText } from './components/woodSkin';
 import Drawer from './components/Drawer';
 import { useChickenGame } from './hooks/useChickenGame';
 import { useSound } from './hooks/useSound';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { theme } from './theme';
+
+const sceneEdge = {
+  position: 'absolute', left: 0, right: 0, height: '23px', zIndex: 2, pointerEvents: 'none',
+  background: `url(${WOOD.edge}) left center / auto 100% repeat-x`,
+  boxShadow: '0 0 6px rgba(20,8,2,0.5)',
+};
 
 export default function App() {
   const {
@@ -29,6 +36,9 @@ export default function App() {
   // horizontal bar across the full width instead of the stacked phone column, so the
   // road keeps as much height as possible.
   const wide       = useMediaQuery('(min-width: 900px)');
+  // Only very wide screens have room for levels and bet controls side by side
+  // inside the board; between 900 and 1400px they stack (board stays compact).
+  const xwide      = useMediaQuery('(min-width: 1400px)');
   const prevStatus = useRef(status);
 
   // Cashout has no multi-stage animation ahead of it (the bounce starts the same
@@ -74,51 +84,76 @@ export default function App() {
         {/* The road is the game — it grows to fill whatever space the control tray below
             doesn't need, instead of sitting in a fixed compact band with a dead gap
             beneath it (PixiRenderer is height-agnostic: track stays bottom-anchored). */}
-        <div style={{ flex: '1 1 auto', minHeight: 0 }}>
+        <div style={{ flex: '1 1 auto', minHeight: 0, position: 'relative' }}>
           <GameCanvas
             status={status} step={step_} lanes={lanes} lastOutcome={lastOutcome}
             difficulty={status === 'active' ? difficulty : selectedDifficulty}
             onBusyChange={setRoundAnimating}
             onSound={handleGameSound}
           />
+          {/* Wood moulding framing the scene top and bottom — overlaid (not extra rows)
+              so the canvas size and PixiRenderer layout stay untouched. */}
+          <div style={{ ...sceneEdge, top: 0 }} />
+          <div style={{ ...sceneEdge, bottom: 0 }} />
         </div>
 
         {/* Sized to its own content, pinned to the bottom — no flex:1/justify-center,
             which was centering the controls inside leftover space and reading as a
-            blank cream void instead of "generous padding". Stacked column on phones,
-            one full-width row (difficulty+status | bet+actions) on wide screens. */}
+            blank cream void instead of "generous padding". Wood board (BOARD-WOOD,
+            nine-sliced so it spans any width) holds levels/status/bet; the play plank
+            sits below it on phones, to its right on wide screens. */}
         <div style={{
           flex: '0 0 auto', background: theme.bgDeep, borderTop: `1px solid ${theme.borderSoft}`,
           ...(wide
-            ? { padding: '16px 24px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.6fr)', gap: '24px', alignItems: 'center' }
-            : { padding: '20px 14px', display: 'flex', flexDirection: 'column', gap: '16px' }),
+            ? { padding: '12px 20px', display: 'grid', gridTemplateColumns: 'auto minmax(320px, 1fr)', gap: '20px', alignItems: 'center' }
+            : { padding: '10px 10px 12px', display: 'flex', flexDirection: 'column', gap: '10px' }),
         }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: wide ? '10px' : '16px', minWidth: 0 }}>
-            <DifficultySelector
-              difficultyKeys={difficultyKeys}
-              difficulties={difficulties}
-              selected={selectedDifficulty}
-              onSelect={setDifficulty}
-              disabled={!isIdleLike}
-            />
+          <div style={{
+            ...frame(WOOD.board, 42, wide ? '22px' : '16px'),
+            backgroundColor: theme.woodDark, backgroundClip: 'padding-box',
+            padding: wide ? '4px 6px' : '2px',
+            display: 'grid', gap: wide ? '18px' : '10px', alignItems: 'center',
+            ...(xwide && { gridTemplateColumns: 'auto auto' }),
+          }}>
+            <div style={{ display: 'grid', gap: '8px', minWidth: 0 }}>
+              <DifficultySelector
+                difficultyKeys={difficultyKeys}
+                difficulties={difficulties}
+                selected={selectedDifficulty}
+                onSelect={setDifficulty}
+                disabled={!isIdleLike}
+                compact={!wide}
+              />
 
-            <div style={{ fontSize: '11px', color: theme.textMuted, minHeight: '14px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <span>{message}</span>
-              {status === 'active' && (
-                <span style={{ color: theme.warning, fontWeight: 700 }}>
-                  · {lanesRemaining} restante{lanesRemaining > 1 ? 's' : ''}
-                </span>
-              )}
-              {status === 'cashed' && cashoutMultiplier != null && (
-                <span style={{ color: theme.success, fontWeight: 700 }}>· {cashoutMultiplier.toFixed(2)}x</span>
-              )}
+              <div style={{
+                ...frame(WOOD.cartoucheWood, 22, '8px 12px'),
+                ...woodText, fontWeight: 700, fontSize: '14px',
+                minHeight: '36px', padding: '0 6px',
+                display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap',
+                textAlign: 'center',
+              }}>
+                <span>{message}</span>
+                {status === 'active' && (
+                  <span style={{ color: theme.accentGold }}>
+                    · {lanesRemaining} restante{lanesRemaining > 1 ? 's' : ''}
+                  </span>
+                )}
+                {status === 'cashed' && cashoutMultiplier != null && (
+                  <span style={{ color: theme.accentGold }}>· {cashoutMultiplier.toFixed(2)}x</span>
+                )}
+              </div>
             </div>
+
+            <BetControls
+              bet={bet} setBet={setBet} betError={betError}
+              minBet={minBet} maxBet={maxBet} balance={balance}
+              isIdleLike={isIdleLike}
+            />
           </div>
 
-          <BetPanel
-            wide={wide}
-            bet={bet} setBet={setBet} betError={betError}
-            minBet={minBet} maxBet={maxBet} balance={balance}
+          <ActionButtons
+            tall={wide}
+            bet={bet} balance={balance} minBet={minBet}
             status={status} isIdleLike={isIdleLike} actionPending={actionPending}
             step={step_} multiplier={multiplier} activeBet={activeBet}
             roundAnimating={roundAnimating}

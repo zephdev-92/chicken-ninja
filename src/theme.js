@@ -26,6 +26,11 @@ export const theme = {
   skinVert: '#b1d952',
   skinLevel: '#fadebb',
   info: '#3a6ea8',
+  // Wood UI skin (src/components/woodSkin.js)
+  woodText: '#fbeed2',            // cream lettering on dark/red wood
+  woodInk: '#3a1f0e',             // dark-brown lettering on light wood/paper
+  woodShadow: 'rgba(20,8,2,0.75)',
+  woodDark: '#3b2414',            // fallback fill behind the board frame
 
   success: '#2e8b57',
   successSoft: 'rgba(46,139,87,0.15)',
@@ -39,5 +44,6 @@ export const theme = {
 
   fontBody: "'Inter', Arial, sans-serif",
   fontDisplay: "'Bangers', 'Inter', Arial, sans-serif", // wordmark/logo only
+  fontWood: "'Alegreya', Georgia, serif", // carved-wood UI labels (buttons, bet, levels)
   fontMono: "'JetBrains Mono', 'Courier New', monospace", // seeds/hashes/ids
 };
