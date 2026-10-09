@@ -12,7 +12,7 @@ import { useMediaQuery } from './hooks/useMediaQuery';
 import { theme } from './theme';
 
 const sceneEdge = {
-  position: 'absolute', left: 0, right: 0, height: '23px', zIndex: 2, pointerEvents: 'none',
+  position: 'absolute', left: 0, right: 0, zIndex: 2, pointerEvents: 'none',
   background: `url(${WOOD.edge}) left center / auto 100% repeat-x`,
   boxShadow: '0 0 6px rgba(20,8,2,0.5)',
 };
@@ -39,6 +39,19 @@ export default function App() {
   // Only very wide screens have room for levels and bet controls side by side
   // inside the board; between 900 and 1400px they stack (board stays compact).
   const xwide      = useMediaQuery('(min-width: 1400px)');
+  // Laptop-sized windows (wide enough for the side-by-side board, but short) also
+  // switch to it, so the stacked board doesn't eat half the height.
+  const shortWide  = useMediaQuery('(min-width: 1260px) and (max-height: 800px)');
+  // Phone held sideways: very little height, plenty of width — controls go in a row.
+  const landscapeShort = useMediaQuery('(orientation: landscape) and (max-height: 520px)');
+  // Short or narrow viewports (real phones once browser chrome is subtracted, e.g.
+  // ~360×560 on Android Firefox): every control shrinks and the cosmetic wins ticker
+  // is hidden, so the road always keeps a usable share of the height.
+  // Laptops (wide but ~650px tall) keep the full-size controls: only phones and
+  // genuinely short windows go compact.
+  const compact    = useMediaQuery('(max-width: 899px) and (max-height: 760px), (max-height: 600px), (max-width: 380px)');
+  const rowTray    = wide || landscapeShort; // board | action planks side by side
+  const boardRow   = xwide || shortWide || landscapeShort; // levels | bet side by side inside the board
   const prevStatus = useRef(status);
 
   // Cashout has no multi-stage animation ahead of it (the bounce starts the same
@@ -78,8 +91,8 @@ export default function App() {
           overflow: 'hidden',
         }}
       >
-        <Header balance={balance} onMenuClick={() => setDrawerOpen(true)} />
-        <CashoutFeed feed={cashoutFeed} />
+        <Header balance={balance} onMenuClick={() => setDrawerOpen(true)} compact={compact} />
+        {!compact && <CashoutFeed feed={cashoutFeed} />}
 
         {/* The road is the game — it grows to fill whatever space the control tray below
             doesn't need, instead of sitting in a fixed compact band with a dead gap
@@ -93,8 +106,8 @@ export default function App() {
           />
           {/* Wood moulding framing the scene top and bottom — overlaid (not extra rows)
               so the canvas size and PixiRenderer layout stay untouched. */}
-          <div style={{ ...sceneEdge, top: 0 }} />
-          <div style={{ ...sceneEdge, bottom: 0 }} />
+          <div style={{ ...sceneEdge, height: compact ? '12px' : '23px', top: 0 }} />
+          <div style={{ ...sceneEdge, height: compact ? '12px' : '23px', bottom: 0 }} />
         </div>
 
         {/* Sized to its own content, pinned to the bottom — no flex:1/justify-center,
@@ -103,43 +116,53 @@ export default function App() {
             nine-sliced so it spans any width) holds levels/status/bet; the play plank
             sits below it on phones, to its right on wide screens. */}
         <div style={{
-          flex: '0 0 auto', background: theme.bgDeep, borderTop: `1px solid ${theme.borderSoft}`,
-          ...(wide
-            ? { padding: '12px 20px', display: 'grid', gridTemplateColumns: 'auto minmax(320px, 1fr)', gap: '20px', alignItems: 'center' }
-            : { padding: '10px 10px 12px', display: 'flex', flexDirection: 'column', gap: '10px' }),
+          flex: '0 0 auto', minWidth: 0, background: theme.bgDeep, borderTop: `1px solid ${theme.borderSoft}`,
+          display: 'grid', alignItems: 'center',
+          ...(rowTray
+            ? {
+                padding: compact ? '6px 10px' : '12px 20px', gap: compact ? '10px' : '20px',
+                // Wide: board sized to its fixed-width tiles, planks take the rest.
+                // Landscape phone: fluid board, narrower plank column.
+                gridTemplateColumns: wide ? 'auto minmax(280px, 1fr)' : 'minmax(0, 2.6fr) minmax(140px, 1fr)',
+              }
+            : { padding: compact ? '6px 6px 8px' : '10px 10px 12px', gap: compact ? '6px' : '10px', gridTemplateColumns: 'minmax(0, 1fr)' }),
         }}>
           <div style={{
-            ...frame(WOOD.board, 42, wide ? '22px' : '16px'),
+            ...frame(WOOD.board, 42, compact ? '10px' : rowTray ? '22px' : '16px'),
             backgroundColor: theme.woodDark, backgroundClip: 'padding-box',
-            padding: wide ? '4px 6px' : '2px',
-            display: 'grid', gap: wide ? '18px' : '10px', alignItems: 'center',
-            ...(xwide && { gridTemplateColumns: 'auto auto' }),
+            padding: compact ? '0' : rowTray ? '4px 6px' : '2px',
+            minWidth: 0,
+            display: 'grid', gap: compact ? '5px' : rowTray ? '18px' : '10px', alignItems: 'center',
+            gridTemplateColumns: boardRow ? (wide ? 'auto auto' : 'minmax(0, 1fr) minmax(0, 1.15fr)') : 'minmax(0, 1fr)',
           }}>
-            <div style={{ display: 'grid', gap: '8px', minWidth: 0 }}>
+            <div style={{ display: 'grid', gap: compact ? '4px' : '8px', minWidth: 0 }}>
               <DifficultySelector
                 difficultyKeys={difficultyKeys}
                 difficulties={difficulties}
                 selected={selectedDifficulty}
                 onSelect={setDifficulty}
                 disabled={!isIdleLike}
-                compact={!wide}
+                compact={compact}
+                fixedWidth={wide}
+                narrow={boardRow}
               />
 
               <div style={{
-                ...frame(WOOD.cartoucheWood, 22, '8px 12px'),
-                ...woodText, fontWeight: 700, fontSize: '14px',
-                minHeight: '36px', padding: '0 6px',
-                display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap',
-                textAlign: 'center',
+                ...(compact ? {} : frame(WOOD.cartoucheWood, 22, '8px 12px')),
+                ...woodText, fontWeight: 700, fontSize: compact ? '11px' : '14px',
+                minHeight: compact ? '16px' : '36px', padding: compact ? '0 4px' : '0 6px',
+                display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center',
+                flexWrap: compact ? 'nowrap' : 'wrap', whiteSpace: compact ? 'nowrap' : 'normal',
+                overflow: 'hidden', textAlign: 'center', minWidth: 0,
               }}>
-                <span>{message}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{message}</span>
                 {status === 'active' && (
-                  <span style={{ color: theme.accentGold }}>
+                  <span style={{ color: theme.accentGold, flexShrink: 0 }}>
                     · {lanesRemaining} restante{lanesRemaining > 1 ? 's' : ''}
                   </span>
                 )}
                 {status === 'cashed' && cashoutMultiplier != null && (
-                  <span style={{ color: theme.accentGold }}>· {cashoutMultiplier.toFixed(2)}x</span>
+                  <span style={{ color: theme.accentGold, flexShrink: 0 }}>· {cashoutMultiplier.toFixed(2)}x</span>
                 )}
               </div>
             </div>
@@ -148,11 +171,14 @@ export default function App() {
               bet={bet} setBet={setBet} betError={betError}
               minBet={minBet} maxBet={maxBet} balance={balance}
               isIdleLike={isIdleLike}
+              compact={compact}
+              width={boardRow && wide ? '400px' : '100%'}
             />
           </div>
 
           <ActionButtons
-            tall={wide}
+            tall={rowTray && !compact}
+            compact={compact}
             bet={bet} balance={balance} minBet={minBet}
             status={status} isIdleLike={isIdleLike} actionPending={actionPending}
             step={step_} multiplier={multiplier} activeBet={activeBet}

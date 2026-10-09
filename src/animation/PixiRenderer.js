@@ -41,6 +41,9 @@ const KO_SQUASH_MS = 150;
 const BADGE_SIZE  = 54;     // multiplier disc drawn on each tile, replaces the plain lane number — bumped from 46 so the "x.xxx" text isn't clipped
 const TOP_CLEARANCE = CHICKEN_H + HOP_ARC + 30; // room above the road for the chicken hop + wall decor
 const REFERENCE_H     = 380; // canvas height the road/chicken/tiles were originally sized for
+// Floor for very short canvases (phones once the controls are laid out): the scene
+// shrinks below its design size instead of having its road pushed off the bottom.
+const MIN_SCENE_SCALE = 0.5;
 const MAX_SCENE_SCALE = 1.5; // cap so the scene doesn't blow up into an unreadable zoom on very tall canvases
 // Fullscreen: on wide canvases the cap above is lifted proportionally to the width
 // (MAX_SCENE_SCALE at <= SCALE_REF_W px wide, up to WIDE_MAX_SCENE_SCALE), so a
@@ -170,7 +173,7 @@ export class PixiRenderer {
     // sitting as a fixed-size band centered in a sea of cream. Uniform (not just vertical)
     // so proportions/art stay undistorted — lanes just get a bit larger, not squashed.
     const maxScale = clamp(width / SCALE_REF_W, MAX_SCENE_SCALE, WIDE_MAX_SCENE_SCALE);
-    const sceneScale = clamp(height / REFERENCE_H, 1, maxScale);
+    const sceneScale = clamp(height / REFERENCE_H, MIN_SCENE_SCALE, maxScale);
     this._sceneScale = sceneScale;
     // Track sits just below its safety clearance (not centered) — centering left the
     // road floating mid-canvas with an unavoidable dead gap above it (chicken height is
@@ -178,7 +181,9 @@ export class PixiRenderer {
     // Pinning it near the top instead hands the rest of the height to the ground plane
     // below, which is what actually reads as "the game fills the canvas" — TRACK_Y_EXTRA
     // nudges it down a bit further from that top-pinned line without fully centering it.
-    this._trackY = clamp(TOP_CLEARANCE * sceneScale + TRACK_Y_EXTRA, TOP_CLEARANCE, height - 30);
+    // Below design size the clearance and nudge shrink with the scene too (>= 1 is unchanged).
+    const down = Math.min(1, sceneScale);
+    this._trackY = clamp(TOP_CLEARANCE * sceneScale + TRACK_Y_EXTRA * down, TOP_CLEARANCE * down, height - 30 * down);
     // +2.5 tile-steps of slack (not +1) so the finish torii past the last lane
     // is fully revealed once the chicken reaches the last lane, not clipped off-screen.
     this._camMax = width * VIEW_ANCHOR;
