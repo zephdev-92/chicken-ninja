@@ -27,7 +27,7 @@ export function useChickenGame() {
   useEffect(() => {
     const handler = ({ detail }) => {
       const msg = detail?.code ?? 'erreur inconnue';
-      setBetError(`Erreur serveur : ${msg}`);
+      setBetError({ key: 'error.server', params: { message: msg } });
     };
     gameEvents.addEventListener('server:error', handler);
     return () => gameEvents.removeEventListener('server:error', handler);
@@ -55,7 +55,7 @@ export function useChickenGame() {
     const v = Math.max(MIN_BET, Math.min(MAX_BET, Math.round(value)));
     if (v > balance) {
       setBetRaw(balance);
-      setBetError('La mise ne peut pas dépasser la balance active.');
+      setBetError({ key: 'error.betOverBalance' });
       return;
     }
     setBetRaw(v);
@@ -71,7 +71,7 @@ export function useChickenGame() {
   const startRound = () => {
     if (!isIdleLike) return;
     if (bet < MIN_BET || bet > balance) {
-      setBetError('Mise invalide.');
+      setBetError({ key: 'error.invalidBet' });
       return;
     }
     setBetError('');

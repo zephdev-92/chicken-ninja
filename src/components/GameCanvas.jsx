@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { PixiRenderer } from '../animation/PixiRenderer';
 import { theme } from '../theme';
+import { useI18n } from '../i18n/react/useI18n';
 
 const RESIZE_DEBOUNCE_MS = 200;
 const SIZE_CHANGE_THRESHOLD = 6; // ignore sub-pixel/scrollbar-induced jitter
 
 export default function GameCanvas({ status, step, lanes, lastOutcome, difficulty, onBusyChange, onSound }) {
+  const { t } = useI18n();
   const containerRef  = useRef(null);
   const rendererRef   = useRef(null);
   const prevStatusRef = useRef(null);
@@ -133,7 +135,7 @@ export default function GameCanvas({ status, step, lanes, lastOutcome, difficult
             }} />
           </div>
           <span style={{ fontSize: '11px', color: theme.textMuted, fontWeight: 600 }}>
-            Chargement… {Math.round(loadProgress * 100)}%
+            {t('game.loading', { percent: Math.round(loadProgress * 100) })}
           </span>
         </div>
       )}

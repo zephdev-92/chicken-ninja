@@ -43,7 +43,7 @@ function resolveInitialToken() {
 function stripLaunchParamsFromUrl() {
   const url = new URL(window.location.href);
   if (!url.searchParams.has('token')) return;
-  ['token', 'lang', 'demo'].forEach((key) => url.searchParams.delete(key));
+  ['token', 'lang', 'country', 'currency', 'demo'].forEach((key) => url.searchParams.delete(key));
   window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
@@ -58,16 +58,22 @@ function dispatch(name, detail) {
   gameEvents.dispatchEvent(new CustomEvent(name, { detail }));
 }
 
+// Player-facing messages travel as language-neutral descriptors ({ key, params })
+// and are only turned into text by the UI (src/i18n) — so this file stays
+// framework- and language-agnostic, and a language switch re-translates the
+// current message instead of leaving it in the old language.
+const msg = (key, params) => ({ key, params });
+
 function difficultyLabel(key) {
-  return DIFFICULTIES[key]?.label ?? key ?? '';
+  return DIFFICULTIES[key] ? msg(`difficulty.${key}`) : (key ?? '');
 }
 
 function messageForStatus(status, difficulty) {
   switch (status) {
-    case 'active': return `Tour en cours (${difficultyLabel(difficulty)}) — avancez ou encaissez.`;
-    case 'busted': return 'Aïe — étoile ninja ! Tour perdu.';
-    case 'cashed': return 'Encaissé — bien joué !';
-    default:       return 'Choisissez une difficulté et misez.';
+    case 'active': return msg('message.roundActive', { difficulty: difficultyLabel(difficulty) });
+    case 'busted': return msg('message.busted');
+    case 'cashed': return msg('message.cashed');
+    default:       return msg('message.chooseDifficulty');
   }
 }
 
@@ -76,7 +82,7 @@ function messageForStatus(status, difficulty) {
 socket.on('connect', () => console.log('[socket] connected:', socket.id));
 
 socket.on('disconnect', () => {
-  dispatch('store:patch', { message: 'Connexion perdue — reconnexion...' });
+  dispatch('store:patch', { message: msg('message.connectionLost') });
 });
 
 socket.on('session:sync', ({ token, balance, wallet, status, difficulty, step, multiplier, provablyFair }) => {
@@ -91,7 +97,7 @@ socket.on('session:sync', ({ token, balance, wallet, status, difficulty, step, m
 
 socket.on('server:error', ({ code }) => {
   console.warn('[socket] server error:', code);
-  dispatch('store:patch', { message: `Erreur : ${code}` });
+  dispatch('store:patch', { message: msg('message.error', { code }) });
   dispatch('server:error', { code });
 });
 
@@ -113,7 +119,7 @@ socket.on('step:result', ({ step, multiplier, lanesRemaining }) => {
   const { difficulty } = chickenStore.getState();
   chickenStore.setState({
     step, multiplier, lanesRemaining, lastOutcome: 'safe',
-    message: `Case ${step} franchie — ${multiplier.toFixed(2)}x (${difficultyLabel(difficulty)})`,
+    message: msg('message.stepCleared', { step, multiplier, difficulty: difficultyLabel(difficulty) }),
   });
 });
 
@@ -122,7 +128,7 @@ socket.on('round:busted', ({ round, step, serverSeed }) => {
   chickenStore.setState({
     status: 'busted', lastOutcome: 'star',
     provablyFair: { ...provablyFair, serverSeed },
-    message: `Étoile ninja à la case ${step} — perdu ${activeBet} €.`,
+    message: msg('message.ninjaStar', { step, amount: activeBet }),
   });
   chickenStore.addHistory({
     round, difficulty, bet: activeBet, step,
@@ -137,7 +143,7 @@ socket.on('round:cashout', ({ round, step, multiplier, payout, bet, serverSeed, 
     balance,
     status: 'cashed', cashoutMultiplier: multiplier,
     provablyFair: { ...provablyFair, serverSeed },
-    message: `Encaissé à la case ${step} — gain ${payout} €.`,
+    message: msg('message.cashedAt', { step, amount: payout }),
   });
   chickenStore.addHistory({
     round, difficulty, bet, step,

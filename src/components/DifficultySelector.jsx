@@ -1,11 +1,13 @@
 import { theme } from '../theme';
 import { WOOD, frame, woodText, inkText } from './woodSkin';
+import { useI18n } from '../i18n/react/useI18n';
 
 // Four wood tiles: red plank (LEVEL-ON) for the selected level, raw wood (LEVEL-OFF)
 // for the others. Each carries a radio-style disc (BTN-CHECK-ON/OFF), ticked on the
 // selected one only — dropped on compact screens, where the red tile alone marks it.
 // Columns are minmax(0, …) so the tiles always shrink to the block, never overflow it.
 export default function DifficultySelector({ difficultyKeys, difficulties, selected, onSelect, disabled, compact = false, fixedWidth = false, narrow = false }) {
+  const { t, fmt } = useI18n();
   return (
     // Wide screens: fixed-width tiles so the wood texture isn't stretched into long planks
     <div style={{
@@ -38,8 +40,8 @@ export default function DifficultySelector({ difficultyKeys, difficulties, selec
               borderRadius: '6px',
             }}
           >
-            <span style={{ whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</span>
-            <span style={{ fontSize: '1.15em' }}>{Math.round(d.deathChance * 100)}%</span>
+            <span style={{ whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t(`difficulty.${key}`)}</span>
+            <span style={{ fontSize: '1.15em' }}>{fmt.percentWhole(d.deathChance)}</span>
             {!compact && (
               <span style={{
                 width: '20px', height: '20px', marginTop: '2px',

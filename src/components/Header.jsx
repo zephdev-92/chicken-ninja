@@ -1,8 +1,10 @@
 import { theme } from '../theme';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { WOOD, frame, inkText, woodText } from './woodSkin';
+import { useI18n } from '../i18n/react/useI18n';
 
 export default function Header({ balance, onMenuClick, compact = false }) {
+  const { t, fmt } = useI18n();
   const wideScreen = useMediaQuery('(min-width: 900px)');
   const wide = wideScreen && !compact; // full-height banner only with room to spare
   return (
@@ -37,11 +39,11 @@ export default function Header({ balance, onMenuClick, compact = false }) {
             fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
           }}
         >
-          {balance.toFixed(2)} €
+          {fmt.money(balance)}
         </div>
         <button
           onClick={onMenuClick}
-          aria-label="Menu"
+          aria-label={t('common.menu')}
           style={{
             ...frame(WOOD.miseBtn, 8, '4px'),
             ...woodText,

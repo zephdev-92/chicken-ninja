@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { theme } from '../theme';
 import { WOOD, frame, woodText, inkText } from './woodSkin';
+import { useI18n } from '../i18n/react/useI18n';
 
 // Tracks hover/press so image-swapped controls (arrows, play plank) can show their
 // ON/CLICK artwork — pressed implies hovered on touch devices too.
@@ -68,7 +69,13 @@ function QuickButton({ onClick, disabled, children, compact }) {
 // One grid row whose columns are all minmax(0, …): the counter takes ~1.8 shares and
 // each quick button one, so the whole row always shrinks to fit its block.
 export function BetControls({ bet, setBet, betError, minBet, maxBet, balance, isIdleLike, compact = false, width = '100%' }) {
+  const { t, translate, fmt } = useI18n();
   const disabled = !isIdleLike;
+  const betLabel = t('game.bet');
+  // The label sits in the fixed light-wood third of the counter artwork: longer
+  // words ("Einsatz", "Puntata") get a smaller size instead of spilling out of it.
+  const labelSize = (compact ? 13 : 17) * Math.min(1, 6 / Math.max(6, betLabel.length));
+  const symbol = <span style={{ ...inkText, fontSize: compact ? '15px' : '20px', flexShrink: 0 }}>{fmt.currencySymbol}</span>;
   return (
     <div style={{ display: 'grid', gap: '4px', width, maxWidth: '100%', minWidth: 0 }}>
       <div style={{
@@ -82,34 +89,36 @@ export function BetControls({ bet, setBet, betError, minBet, maxBet, balance, is
         }}>
           <span style={{
             ...inkText, position: 'absolute', left: 0, width: '34%', top: 0, bottom: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? '13px' : '17px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: `${labelSize.toFixed(1)}px`,
+            whiteSpace: 'nowrap', overflow: 'hidden',
           }}>
-            Mise
+            {betLabel}
           </span>
           {/* Paper field of the artwork spans ~36%→95% horizontally, ~20%→80% vertically */}
           <div style={{
             position: 'absolute', left: '37%', right: '6%', top: '18%', bottom: '18%',
             display: 'flex', alignItems: 'center', gap: '2px', paddingLeft: compact ? '3px' : '6px',
           }}>
+            {fmt.currencySymbolFirst && symbol}
             <input
               type="text"
               inputMode="numeric"
-              aria-label="Mise"
+              aria-label={betLabel}
               value={bet}
               disabled={disabled}
               onChange={e => setBet(Number(e.target.value.replace(/\D/g, '')) || 0)}
               style={{
                 ...inkText, flex: '1 1 auto', minWidth: 0, width: '100%',
                 border: 'none', background: 'transparent', outline: 'none', padding: 0,
-                fontSize: compact ? '15px' : '20px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                fontSize: compact ? '15px' : '20px', textAlign: fmt.currencySymbolFirst ? 'left' : 'right', fontVariantNumeric: 'tabular-nums',
                 cursor: disabled ? 'not-allowed' : 'text',
               }}
             />
-            <span style={{ ...inkText, fontSize: compact ? '15px' : '20px', flexShrink: 0 }}>€</span>
+            {!fmt.currencySymbolFirst && symbol}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flexShrink: 0, marginLeft: '2px' }}>
-              <ArrowButton dir="up" label="Augmenter la mise" disabled={disabled} compact={compact}
+              <ArrowButton dir="up" label={t('game.increaseBet')} disabled={disabled} compact={compact}
                 onClick={() => setBet(Math.min(maxBet, bet + 1))} />
-              <ArrowButton dir="down" label="Diminuer la mise" disabled={disabled} compact={compact}
+              <ArrowButton dir="down" label={t('game.decreaseBet')} disabled={disabled} compact={compact}
                 onClick={() => setBet(Math.max(minBet, bet - 1))} />
             </div>
           </div>
@@ -126,7 +135,7 @@ export function BetControls({ bet, setBet, betError, minBet, maxBet, balance, is
       </div>
 
       {betError && (
-        <div style={{ ...woodText, fontWeight: 700, color: theme.accentGold, fontSize: compact ? '11px' : '13px', paddingLeft: '4px' }}>{betError}</div>
+        <div style={{ ...woodText, fontWeight: 700, color: theme.accentGold, fontSize: compact ? '11px' : '13px', paddingLeft: '4px' }}>{translate(betError)}</div>
       )}
     </div>
   );
@@ -172,6 +181,7 @@ export function ActionButtons({
   bet, balance, minBet, status, isIdleLike, step, multiplier, activeBet, actionPending, roundAnimating,
   onStart, onStep, onCashOut, tall = false, compact = false,
 }) {
+  const { t } = useI18n();
   // isIdleLike flips true the instant a round busts/cashes out, but the road
   // still needs ~half a second to play out the shuriken/KO animation — starting
   // a new round before that finishes yanks the scene out from under it (see
@@ -184,15 +194,15 @@ export function ActionButtons({
     <div style={{ display: 'flex', gap: compact ? '6px' : '8px', minWidth: 0 }}>
       {isIdleLike ? (
         <PlankButton onClick={onStart} disabled={!canStart} tall={tall} compact={compact}>
-          {balance < bet ? 'Balance trop juste' : `Jouer — ${bet}\u00a0€`}
+          {balance < bet ? t('game.insufficientBalance') : t('game.play', { amount: bet })}
         </PlankButton>
       ) : (
         <>
           <PlankButton onClick={onStep} disabled={!canStep} tall={tall} compact={compact}>
-            Avancer →
+            {t('game.advance')}
           </PlankButton>
           <PlankButton onClick={onCashOut} disabled={!canCashOut} tall={tall} compact={compact} cashout>
-            Encaisser{step >= 1 ? ` ${(activeBet * multiplier).toFixed(2)}\u00a0€` : ''}
+            {step >= 1 ? t('game.cashOutAmount', { amount: activeBet * multiplier }) : t('game.cashOut')}
           </PlankButton>
         </>
       )}

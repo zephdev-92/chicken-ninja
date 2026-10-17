@@ -71,7 +71,7 @@ export function createGamesApiRouter({
 
   router.post('/game/url', (req, res) => {
     const {
-      user, token: hub88Token, currency, lang,
+      user, token: hub88Token, currency, lang, country,
       operator_id: operatorId, game_code: requestedGameCode,
     } = req.body;
 
@@ -103,6 +103,11 @@ export function createGamesApiRouter({
     const url = new URL(launchBaseUrl);
     url.searchParams.set('token', sessionToken);
     url.searchParams.set('lang', lang ?? 'en');
+    // The frontend formats every amount in this currency (src/i18n/LocaleDetector.js);
+    // 'XXX' is Hub88's fun-mode placeholder, not a real currency, so it isn't passed on.
+    if (currency && currency !== 'XXX') url.searchParams.set('currency', currency);
+    // ISO 3166 alpha-2 only — Hub88 sends 'XX' when it doesn't know the player's country.
+    if (/^[A-Z]{2}$/.test(country ?? '') && country !== 'XX') url.searchParams.set('country', country);
     if (isDemo) url.searchParams.set('demo', '1');
 
     res.json({ url: url.toString() });

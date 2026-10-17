@@ -376,9 +376,11 @@ Deux options pour livrer le jeu à l'opérateur :
   `useChickenGame.js` restent identiques ; seul `socketClient.js` a bougé (lit `?token=`
   en priorité sur `localStorage`, voir étape 10 plus bas), pas besoin d'une page d'entrée
   séparée. **C'est le chemin recommandé pour un premier ship** : minimise le risque,
-  réutilise 100% du frontend existant. (`lang`/`currency`/`country` transmis par Hub88 ne
-  sont pas encore exploités côté client — pas d'i18n ni de formatage multi-devise dans
-  l'app aujourd'hui, hors scope tant qu'un seul marché est visé.)
+  réutilise 100% du frontend existant. `lang`/`currency`/`country` transmis par Hub88 sont
+  repassés dans l'URL de lancement (`gamesApi.js` ; `currency` sauf `XXX`, `country` sauf
+  `XX`) et exploités par `src/i18n/LocaleDetector.js` : langue de l'interface (repli
+  anglais) et formatage des montants dans la devise de la session. Devises crypto non
+  gérées pour l'instant (voir `CLAUDE.md`).
 - **Supplier Games SDK** (pas d'iframe, notre JS chargé nativement dans la page de
   l'opérateur) : plus de contrôle pour l'opérateur (son/thème dynamiques via `sendAction`/
   `sendCustomAction`), mais demande d'exposer notre bundle en single ES module sur un CDN

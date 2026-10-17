@@ -4,6 +4,7 @@ import {
   hmacMessage, hexToUnitInterval, outcomeFromUnitInterval, computeStepMultiplier,
 } from '../shared/gameConfig';
 import { theme } from '../theme';
+import { useI18n } from '../i18n/react/useI18n';
 
 // Web Crypto — même algorithme que le serveur (Node `crypto`), calculé côté client.
 async function computeStepOutcome(serverSeed, clientSeed, nonce, step, deathChance) {
@@ -25,6 +26,7 @@ async function computeStepOutcome(serverSeed, clientSeed, nonce, step, deathChan
 }
 
 function CopyButton({ text }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(text).then(() => {
@@ -38,7 +40,7 @@ function CopyButton({ text }) {
       background: copied ? theme.successSoft : theme.surfaceAlt,
       color: copied ? theme.success : theme.textMuted, fontSize: '11px', cursor: 'pointer',
     }}>
-      {copied ? '✓' : 'copier'}
+      {copied ? '✓' : t('common.copy')}
     </button>
   );
 }
@@ -58,6 +60,7 @@ function HashRow({ label, value }) {
 }
 
 export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) {
+  const { t } = useI18n();
   const { serverSeedHash, clientSeed, nonce, serverSeed } = provablyFair;
 
   const [open,     setOpen]     = useState(false);
@@ -127,7 +130,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
         }}
       >
         <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          🔒 Provably Fair
+          🔒 {t('fair.title')}
         </span>
         <span style={{ fontSize: '11px', color: theme.textMuted }}>{open ? '▲' : '▼'}</span>
       </button>
@@ -137,12 +140,12 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
 
           <div style={{ display: 'grid', gap: '8px' }}>
             <div style={{ color: theme.textMuted, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Tour #{nonce || '—'}
+              {t('fair.round', { nonce: nonce || '—' })}
             </div>
-            <HashRow label="Server hash" value={serverSeedHash} />
+            <HashRow label={t('fair.serverHash')} value={serverSeedHash} />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>Client seed</span>
+              <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>{t('fair.clientSeed')}</span>
               {editMode ? (
                 <>
                   <input
@@ -159,13 +162,13 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                     padding: '4px 10px', borderRadius: '7px', border: 'none',
                     background: theme.successSoft, color: theme.success, fontSize: '11px', cursor: 'pointer',
                   }}>
-                    OK
+                    {t('common.ok')}
                   </button>
                   <button onClick={() => setEditMode(false)} style={{
                     padding: '4px 8px', borderRadius: '7px', border: 'none',
                     background: theme.surface, color: theme.textMuted, fontSize: '11px', cursor: 'pointer',
                   }}>
-                    Annuler
+                    {t('common.cancel')}
                   </button>
                 </>
               ) : (
@@ -178,7 +181,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                       padding: '3px 8px', borderRadius: '6px', border: 'none',
                       background: theme.surface, color: theme.accent, fontSize: '11px', cursor: 'pointer',
                     }}>
-                      modifier
+                      {t('common.edit')}
                     </button>
                   )}
                 </>
@@ -192,8 +195,8 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
               background: theme.successSoft, border: `1px solid ${theme.success}33`,
               display: 'grid', gap: '6px',
             }}>
-              <div style={{ color: theme.success, fontSize: '11px', fontWeight: 700 }}>✓ Server seed révélé</div>
-              <HashRow label="Server seed" value={serverSeed} />
+              <div style={{ color: theme.success, fontSize: '11px', fontWeight: 700 }}>{t('fair.serverSeedRevealed')}</div>
+              <HashRow label={t('fair.serverSeed')} value={serverSeed} />
               <button
                 onClick={prefillVerifier}
                 style={{
@@ -202,7 +205,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                   fontSize: '11px', cursor: 'pointer',
                 }}
               >
-                Pré-remplir le vérificateur →
+                {t('fair.prefill')}
               </button>
             </div>
           )}
@@ -211,14 +214,14 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
 
           <div style={{ display: 'grid', gap: '8px' }}>
             <div style={{ color: theme.textMuted, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Vérifier une case
+              {t('fair.verifyTitle')}
             </div>
 
             {[
-              { label: 'Server seed', val: vServerSeed, set: setVServerSeed, ph: '64 hex chars…' },
-              { label: 'Client seed', val: vClientSeed, set: setVClientSeed, ph: 'default' },
-              { label: 'Nonce (tour)', val: vNonce,      set: setVNonce,      ph: '3' },
-              { label: 'Case (step)',  val: vStep,        set: setVStep,        ph: '1' },
+              { label: t('fair.serverSeed'), val: vServerSeed, set: setVServerSeed, ph: t('fair.serverSeedPlaceholder') },
+              { label: t('fair.clientSeed'), val: vClientSeed, set: setVClientSeed, ph: 'default' },
+              { label: t('fair.nonce'),      val: vNonce,      set: setVNonce,      ph: '3' },
+              { label: t('fair.step'),       val: vStep,       set: setVStep,       ph: '1' },
             ].map(({ label, val, set, ph }) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>{label}</span>
@@ -235,7 +238,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
             ))}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>Difficulté</span>
+              <span style={{ color: theme.textMuted, fontSize: '12px', minWidth: '110px' }}>{t('fair.difficulty')}</span>
               <select
                 value={vDifficulty}
                 onChange={e => { setVDifficulty(e.target.value); setVResult(null); }}
@@ -245,7 +248,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                 }}
               >
                 {DIFFICULTY_KEYS.map(k => (
-                  <option key={k} value={k}>{DIFFICULTIES[k].label}</option>
+                  <option key={k} value={k}>{t(`difficulty.${k}`)}</option>
                 ))}
               </select>
             </div>
@@ -260,7 +263,7 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                 fontWeight: 700, fontSize: '13px', cursor: 'pointer',
               }}
             >
-              {vLoading ? 'Calcul…' : "Calculer l'issue de la case"}
+              {vLoading ? t('fair.computing') : t('fair.compute')}
             </button>
 
             {vResult && (
@@ -272,13 +275,13 @@ export default function ProvablyFair({ provablyFair, onSetClientSeed, status }) 
                 {vResult.ok ? (
                   vResult.outcome === 'safe' ? (
                     <span style={{ color: theme.success, fontWeight: 700 }}>
-                      Case sûre — multiplicateur {vResult.multiplier.toFixed(2)}x
+                      {t('fair.safe', { multiplier: vResult.multiplier })}
                     </span>
                   ) : (
-                    <span style={{ color: theme.danger, fontWeight: 700 }}>🥷 Étoile ninja — case fatale</span>
+                    <span style={{ color: theme.danger, fontWeight: 700 }}>{t('fair.fatal')}</span>
                   )
                 ) : (
-                  <span style={{ color: theme.danger }}>Erreur de calcul — vérifiez les valeurs.</span>
+                  <span style={{ color: theme.danger }}>{t('fair.calcError')}</span>
                 )}
               </div>
             )}

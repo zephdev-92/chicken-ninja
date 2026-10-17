@@ -6,8 +6,8 @@ product
 
 ## Users
 
-Large audience de joueurs casino en ligne, mobile-first (cadre fixe portrait, pas de scroll
-de page). Deux profils qui se recoupent : joueurs casual qui ouvrent l'app pour quelques
+Large audience internationale de joueurs casino en ligne (6 langues, devise détectée),
+mobile-first mais plein écran sur tous les formats (pas de scroll de page). Deux profils qui se recoupent : joueurs casual qui ouvrent l'app pour quelques
 rounds rapides, et habitués des crash/step games (type Chicken Road) qui comparent
 implicitement à ce qu'ils connaissent déjà. Pas de persona unique — optimiser pour la
 clarté et la rapidité de compréhension plutôt qu'un profil précis. Le joueur doit
@@ -53,8 +53,9 @@ gains live, disques de multiplicateur le long de la route) — mais l'habillage 
 - **Énergie manga sans bruit** : contraste fort et halftone au service de la lisibilité,
   jamais au détriment d'elle — un chiffre de mise ou un multiplicateur ne doit jamais être
   noyé dans la décoration.
-- **Mobile-first, cadre fixe** : pas de scroll de page, tout tient dans le viewport fixe
-  portrait ; chaque ajout structurel doit d'abord se prouver sur ce format avant desktop.
+- **Mobile-first, plein écran** : pas de scroll de page, tout tient dans le viewport et la
+  zone de jeu reste toujours visible ; chaque ajout structurel doit d'abord se prouver sur un
+  téléphone court (≈360×560) avant le desktop.
 - **S'inspirer sans cloner** : reprendre des patterns UX éprouvés du genre "step game" est
   légitime, copier l'identité visuelle d'un concurrent nommé ne l'est pas.
 

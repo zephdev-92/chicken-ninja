@@ -1,10 +1,12 @@
 import { DIFFICULTIES } from '../shared/gameConfig';
 import { theme } from '../theme';
 import iconStar from '../assets/icons/icon-star.png';
+import { useI18n } from '../i18n/react/useI18n';
 
 // Compact horizontal ticker — sits as a thin strip between the header and the
 // game canvas, mirrors the "Live wins" bar of reference casino games.
 export default function CashoutFeed({ feed }) {
+  const { t, fmt } = useI18n();
   return (
     <div
       style={{
@@ -16,10 +18,10 @@ export default function CashoutFeed({ feed }) {
       }}
     >
       <span style={{ color: theme.textMuted, flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <img src={iconStar} alt="" width={14} height={14} /> Gains récents
+        <img src={iconStar} alt="" width={14} height={14} /> {t('game.recentWins')}
       </span>
       {feed.length === 0 ? (
-        <span style={{ color: theme.disabledText }}>en attente des premiers gains…</span>
+        <span style={{ color: theme.disabledText }}>{t('game.waitingWins')}</span>
       ) : (
         feed.map((entry, i) => (
           <span
@@ -31,9 +33,9 @@ export default function CashoutFeed({ feed }) {
             }}
           >
             <span style={{ color: theme.textMuted, fontFamily: theme.fontMono, fontSize: '11px' }}>#{entry.shortId}</span>
-            <span style={{ color: theme.textMuted }}>{DIFFICULTIES[entry.difficulty]?.label ?? entry.difficulty}</span>
-            <span style={{ color: theme.success, fontWeight: 700 }}>{entry.multiplier.toFixed(2)}x</span>
-            <span style={{ color: theme.success, fontWeight: 700 }}>+{entry.payout} €</span>
+            <span style={{ color: theme.textMuted }}>{DIFFICULTIES[entry.difficulty] ? t(`difficulty.${entry.difficulty}`) : entry.difficulty}</span>
+            <span style={{ color: theme.success, fontWeight: 700 }}>{fmt.multiplier(entry.multiplier)}</span>
+            <span style={{ color: theme.success, fontWeight: 700 }}>+{fmt.money(entry.payout)}</span>
           </span>
         ))
       )}

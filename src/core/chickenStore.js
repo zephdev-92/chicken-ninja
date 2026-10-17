@@ -10,7 +10,7 @@ const AUTO_IDLE_MS = 6000;
 const IDLE_PATCH = {
   status: 'idle', step: 0, multiplier: 1, lanesRemaining: 0,
   activeBet: 0, lastOutcome: null, cashoutMultiplier: null,
-  message: 'Choisissez une difficulté et misez.',
+  message: { key: 'message.chooseDifficulty' }, // i18n descriptor, see socketClient.js
 };
 
 class ChickenStore extends EventTarget {
@@ -32,7 +32,7 @@ class ChickenStore extends EventTarget {
       activeBet:      0,
       lastOutcome:    null,   // 'safe' | 'star' | null — drives the last renderer animation
       cashoutMultiplier: null,
-      message:        'Choisissez une difficulté et misez.',
+      message:        { key: 'message.chooseDifficulty' }, // i18n descriptor { key, params }
       history:        [],
       cashoutFeed:    [],
       provablyFair: {

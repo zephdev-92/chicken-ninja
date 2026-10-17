@@ -11,10 +11,10 @@ export const RTP = 0.97; // 3 % house edge, same convention as CRASH-GAME
 // give the player a natural stopping point: a round should only end via bust or a manual
 // cashout. Never drop this back near the number of visually reachable lanes.
 export const DIFFICULTIES = {
-  easy:     { label: 'Facile',   lanes: 200, deathChance: 0.03 },
-  medium:   { label: 'Moyen',    lanes: 200, deathChance: 0.07 },
-  hard:     { label: 'Difficile', lanes: 200, deathChance: 0.15 },
-  hardcore: { label: 'Extrême',  lanes: 200, deathChance: 0.30 },
+  easy:     { label: 'Easy',     lanes: 200, deathChance: 0.03 },
+  medium:   { label: 'Medium',   lanes: 200, deathChance: 0.07 },
+  hard:     { label: 'Hard',     lanes: 200, deathChance: 0.15 },
+  hardcore: { label: 'Extreme',  lanes: 200, deathChance: 0.30 },
 };
 
 export const DIFFICULTY_KEYS = Object.keys(DIFFICULTIES);

@@ -6,10 +6,12 @@ import DifficultySelector from './components/DifficultySelector';
 import { BetControls, ActionButtons } from './components/BetPanel';
 import { WOOD, frame, woodText } from './components/woodSkin';
 import Drawer from './components/Drawer';
+import InfoPanel from './components/InfoPanel';
 import { useChickenGame } from './hooks/useChickenGame';
 import { useSound } from './hooks/useSound';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { theme } from './theme';
+import { useI18n } from './i18n/react/useI18n';
 
 const sceneEdge = {
   position: 'absolute', left: 0, right: 0, zIndex: 2, pointerEvents: 'none',
@@ -29,7 +31,9 @@ export default function App() {
     difficulties, difficultyKeys, provablyFair, minBet, maxBet,
   } = useChickenGame();
 
+  const { t, translate, fmt } = useI18n();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [roundAnimating, setRoundAnimating] = useState(false);
   const sound      = useSound();
   // Wide screens (desktop, tablet landscape) lay the control tray out as a single
@@ -108,6 +112,26 @@ export default function App() {
               so the canvas size and PixiRenderer layout stay untouched. */}
           <div style={{ ...sceneEdge, height: compact ? '12px' : '23px', top: 0 }} />
           <div style={{ ...sceneEdge, height: compact ? '12px' : '23px', bottom: 0 }} />
+          {/* Discreet but always reachable entry to the mandatory information
+              (rules, RTP, responsible gaming, legal notice) — bottom-right of the
+              scene, clear of the chicken which always sits on the left side. */}
+          <button
+            type="button"
+            onClick={() => setInfoOpen(true)}
+            aria-label={t('game.infoButton')}
+            title={t('game.infoTitle')}
+            style={{
+              position: 'absolute', zIndex: 3, right: compact ? '8px' : '12px', bottom: compact ? '18px' : '31px',
+              width: compact ? '28px' : '32px', height: compact ? '28px' : '32px', padding: 0, border: 'none',
+              borderRadius: '50%', cursor: 'pointer', opacity: 0.85,
+              background: `url(${WOOD.checkOff}) center / 100% 100% no-repeat`,
+              boxShadow: '0 1px 4px rgba(20,8,2,0.45)',
+              fontFamily: theme.fontWood, fontWeight: 800, fontStyle: 'italic',
+              fontSize: compact ? '16px' : '18px', lineHeight: 1, color: theme.woodInk,
+            }}
+          >
+            i
+          </button>
         </div>
 
         {/* Sized to its own content, pinned to the bottom — no flex:1/justify-center,
@@ -155,14 +179,14 @@ export default function App() {
                 flexWrap: compact ? 'nowrap' : 'wrap', whiteSpace: compact ? 'nowrap' : 'normal',
                 overflow: 'hidden', textAlign: 'center', minWidth: 0,
               }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{message}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{translate(message)}</span>
                 {status === 'active' && (
                   <span style={{ color: theme.accentGold, flexShrink: 0 }}>
-                    · {lanesRemaining} restante{lanesRemaining > 1 ? 's' : ''}
+                    · {t('game.remaining', { count: lanesRemaining })}
                   </span>
                 )}
                 {status === 'cashed' && cashoutMultiplier != null && (
-                  <span style={{ color: theme.accentGold, flexShrink: 0 }}>· {cashoutMultiplier.toFixed(2)}x</span>
+                  <span style={{ color: theme.accentGold, flexShrink: 0 }}>· {fmt.multiplier(cashoutMultiplier)}</span>
                 )}
               </div>
             </div>
@@ -194,7 +218,10 @@ export default function App() {
         depositToBankroll={depositToBankroll} withdrawFromBankroll={withdrawFromBankroll}
         provablyFair={provablyFair} onSetClientSeed={setClientSeed} status={status}
         history={history} difficulties={difficulties}
+        onOpenInfo={() => { setDrawerOpen(false); setInfoOpen(true); }}
       />
+
+      <InfoPanel open={infoOpen} onClose={() => setInfoOpen(false)} minBet={minBet} maxBet={maxBet} />
     </div>
   );
 }
