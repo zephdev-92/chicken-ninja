@@ -2,9 +2,11 @@ import { theme } from '../theme';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { WOOD, frame, inkText, woodText } from './woodSkin';
 import { useI18n } from '../i18n/react/useI18n';
+import { useMusic } from '../hooks/useMusic';
 
 export default function Header({ balance, onMenuClick, compact = false }) {
   const { t, fmt } = useI18n();
+  const music = useMusic();
   const wideScreen = useMediaQuery('(min-width: 900px)');
   const wide = wideScreen && !compact; // full-height banner only with room to spare
   return (
@@ -41,6 +43,31 @@ export default function Header({ balance, onMenuClick, compact = false }) {
         >
           {fmt.money(balance)}
         </div>
+        <button
+          onClick={music.toggle}
+          aria-label={t(music.enabled ? 'common.musicOff' : 'common.musicOn')}
+          aria-pressed={music.enabled}
+          title={t(music.enabled ? 'common.musicOff' : 'common.musicOn')}
+          style={{
+            ...frame(WOOD.miseBtn, 8, '4px'),
+            ...woodText,
+            width: compact ? '34px' : '40px', height: compact ? '40px' : '46px', padding: 0,
+            fontSize: compact ? '16px' : '19px', lineHeight: 1, cursor: 'pointer', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            opacity: music.enabled ? 1 : 0.6,
+          }}
+        >
+          {/* Note with a slash when off — the state reads without relying on colour */}
+          <span style={{ position: 'relative', display: 'inline-block' }}>
+            ♪
+            {!music.enabled && (
+              <span aria-hidden="true" style={{
+                position: 'absolute', left: '-15%', right: '-15%', top: '50%', height: '2px',
+                background: theme.woodText, transform: 'rotate(-45deg)',
+              }} />
+            )}
+          </span>
+        </button>
         <button
           onClick={onMenuClick}
           aria-label={t('common.menu')}

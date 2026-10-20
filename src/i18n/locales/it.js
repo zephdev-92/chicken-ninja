@@ -10,6 +10,8 @@ export default {
     copy: 'copia',
     language: 'Lingua',
     currency: 'Valuta',
+    musicOn: 'Attiva la musica',
+    musicOff: 'Disattiva la musica',
   },
 
   difficulty: {
@@ -46,6 +48,17 @@ export default {
     stepCleared: 'Casella {step} superata — {multiplier:multiplier} ({difficulty})',
     ninjaStar: 'Stella ninja sulla casella {step} — persi {amount:moneyShort}.',
     cashedAt: 'Incassato alla casella {step} — vinti {amount:money}.',
+  },
+
+  // End-of-round boards (ResultBoard.jsx)
+  result: {
+    winTitle: 'Hai vinto!',
+    winAmount: '+{amount:money}',
+    winDetail: 'Incassato a {multiplier:multiplier} · casella {step}',
+    lossTitle: 'Stella ninja!',
+    lossDetail: 'Colpito alla casella {step} — persi {amount:moneyShort}.',
+    lossRetry: 'Pronto per un altro round?',
+    playAgain: 'Rigioca — {amount:moneyShort}',
   },
 
   error: {

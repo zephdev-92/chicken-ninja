@@ -176,6 +176,23 @@ Pastille « i » (`BTN-CHECK-OFF.png`) en bas à droite, à l'opposé de la poul
 - **État de case** : cercle plein centré — prochain saut (or, 0.55), validée (vert, 0.45),
   crash (rouge, 0.7 + icône X). Le crash reste le seul état doublé d'une icône.
 
+### Écrans de fin de tour (`BOARD-WIN.png`, `BOARD-LOOSE.png`)
+Panneau bois rouge centré sur la scène, apparition en rebond (280 ms) une fois l'animation de
+la poule terminée, voile sombre léger derrière. Gain : poule au katana à gauche, « Gagné ! »,
+montant en or (Alegreya, grand), détail multiplicateur/case. Perte : poule KO en bas à
+gauche, texte aligné à droite, relance en or (« Prêt pour un nouveau tour ? »). Planche
+« Rejouer » `PLAY-BTN-*` dans les deux cas, croix ✕ sur une pastille `BTN-CHECK-OFF` dans le
+coin libre de l'illustration. Taille en unités de conteneur : le panneau et son texte suivent
+la taille de la scène.
+
+### Musique (bouton ♪)
+Bloc `MISE-BTN` à gauche du menu ☰ dans le bandeau ; note barrée et bloc pâli quand la
+musique est coupée (l'état ne repose pas sur la couleur).
+
+### Poule au repos
+Respiration et balancement très légers en pose d'attente (`PixiRenderer`, constantes
+`IDLE_*`), jamais de sautillement ; immobile si « réduire les animations » est activé.
+
 ### Menu ☰ (Drawer) et panneau Information
 Panneaux de lecture en Inter sur `surface`/`surface-alt` (cartes radius 10-16px, bordures
 `borderSoft`). Menu : langue, devise, portefeuille, Provably Fair, historique, lien vers

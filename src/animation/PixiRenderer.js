@@ -38,6 +38,12 @@ const HOP_THROW_PROGRESS = 0.7;
 const SHURIKEN_MS = 180;
 const CHICKEN_H   = 66 * 1.2; // display height, all poses scaled to match — +20%
 const KO_SQUASH_MS = 150;
+// Idle life while the chicken waits (start line or between steps): breathing squash/
+// stretch from the feet and a slow sway.
+const IDLE_BREATH_HZ   = 0.9;
+const IDLE_BREATH      = 0.025;  // vertical stretch amplitude (fraction of height)
+const IDLE_SWAY_HZ     = 0.35;
+const IDLE_SWAY_RAD    = 2.5 * Math.PI / 180;
 const BADGE_SIZE  = 54;     // multiplier disc drawn on each tile, replaces the plain lane number — bumped from 46 so the "x.xxx" text isn't clipped
 const TOP_CLEARANCE = CHICKEN_H + HOP_ARC + 30; // room above the road for the chicken hop + wall decor
 const REFERENCE_H     = 380; // canvas height the road/chicken/tiles were originally sized for
@@ -154,6 +160,9 @@ export class PixiRenderer {
     this._missShurikens = []; // near-miss shurikens falling on tiles the chicken just cleared
     this._flash = 0;       // bust screen-flash alpha
     this._bounceT = null;  // cashout victory-bounce progress
+    this._idleT = 0;       // seconds of idle animation clock
+    this._reducedMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     this._busy = false;        // true while the bust/cashout animation is still playing
     this._onBusyChange = null; // React callback — gates the "start new round" button while _busy
@@ -524,6 +533,24 @@ export class PixiRenderer {
     this._setChickenPose(pose);
   }
 
+  // Idle-pose life (see IDLE_* constants). Only touches the idle sprite, and puts it
+  // back to rest as soon as another pose takes over.
+  _animateIdle(dt) {
+    const idle = this._chicken._poses.idle;
+    if (this._chicken._pose !== 'idle' || this._reducedMotion) {
+      idle.scale.set(idle._baseScale);
+      idle.rotation = 0;
+      return;
+    }
+
+    this._idleT += dt / 60;
+    const t = this._idleT;
+    const breath = Math.sin(t * 2 * Math.PI * IDLE_BREATH_HZ);
+    const base = idle._baseScale;
+    idle.scale.set(base * (1 - IDLE_BREATH * 0.5 * breath), base * (1 + IDLE_BREATH * breath));
+    idle.rotation = Math.sin(t * 2 * Math.PI * IDLE_SWAY_HZ) * IDLE_SWAY_RAD;
+  }
+
   _setTileState(index, state) {
     const t = this._tiles[index - 1];
     if (!t) return;
@@ -891,6 +918,7 @@ export class PixiRenderer {
     this._chicken.x = this._chickenX;
     this._chicken.y = this._chickenY;
     this._updateChickenPose();
+    this._animateIdle(dt);
 
     // Camera follow — chickenX is in the track's local (unscaled) space, so it needs the
     // scene scale applied to match the screen-space camMin/camMax/track.x it's compared against.

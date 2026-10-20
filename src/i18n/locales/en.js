@@ -15,6 +15,8 @@ export default {
     copy: 'copy',
     language: 'Language',
     currency: 'Currency',
+    musicOn: 'Turn music on',
+    musicOff: 'Turn music off',
   },
 
   difficulty: {
@@ -51,6 +53,17 @@ export default {
     stepCleared: 'Step {step} cleared — {multiplier:multiplier} ({difficulty})',
     ninjaStar: 'Ninja star on step {step} — lost {amount:moneyShort}.',
     cashedAt: 'Cashed out at step {step} — won {amount:money}.',
+  },
+
+  // End-of-round boards (ResultBoard.jsx)
+  result: {
+    winTitle: 'You won!',
+    winAmount: '+{amount:money}',
+    winDetail: 'Cashed out at {multiplier:multiplier} · step {step}',
+    lossTitle: 'Ninja star!',
+    lossDetail: 'Caught on step {step} — {amount:moneyShort} lost.',
+    lossRetry: 'Ready for another run?',
+    playAgain: 'Play again — {amount:moneyShort}',
   },
 
   error: {

@@ -82,12 +82,15 @@ Chicken-ninja/
 │   │   ├── useSound.js       #   Web Audio API — hop/targetHit synthétisés, bust/cashout
 │   │   │                     #   rejouent de vrais fichiers (src/assets/sounds/*.mp3)
 │   │   └── useMediaQuery.js
+│   ├── audio/                # Musique d'ambiance synthétisée : AmbientMusic, score, instruments,
+│   │                         #   audioContext (partagé avec useSound)
 │   ├── i18n/                 # Langues/devises : Translator, LocaleDetector, NumberFormats,
 │   │                         #   I18nService, locales/*.js, react/ (useI18n, RichText)
 │   └── components/           # ← UI React — plein écran responsive (voir App.jsx)
 │       ├── Header.jsx, Drawer.jsx (wallet/ProvablyFair/historique, hors flux principal)
 │       ├── GameCanvas.jsx, DifficultySelector.jsx, BetPanel.jsx,
-│       ├── ProvablyFair.jsx, CashoutFeed.jsx (ticker "gains récents")
+│       ├── ProvablyFair.jsx, CashoutFeed.jsx (ticker "gains récents"),
+│       ├── InfoPanel.jsx (mentions), ResultBoard.jsx (écrans gain/perte), woodSkin.js
 │       # Échelle de multiplicateurs : plus de composant dédié — badges dessinés directement
 │       # sur les cases par PixiRenderer (buildMultiplierLadder dans gameConfig.js reste la
 │       # seule source des valeurs)
@@ -162,7 +165,8 @@ l'unité affichée change selon la devise détectée.
 Prototype fonctionnel : mise, choix de difficulté, avancée case par case, cashout,
 provably fair vérifiable, historique, feed de gains, interface plein écran responsive
 (pas de scroll de page), skin bois, 6 langues avec détection langue/pays/devise, panneau
-Information (mentions obligatoires). RTP validé empiriquement via `npm run rtp-sim`
+Information (mentions obligatoires), écrans de gain/perte, musique d'ambiance, poule animée
+au repos. RTP validé empiriquement via `npm run rtp-sim`
 (Monte Carlo sur le vrai chemin HMAC, cf. `.claude/skills/rtp-simulation/`).
 
 **Fin de tour (PixiRenderer + chickenStore) :**
@@ -311,6 +315,31 @@ la pastille « i » (bas droite de la scène) ou le menu ☰. Textes dans `src/i
 `gameConfig.js` au rendu. Éditeur/hébergeur dans `legalInfo.js` (`null` → « À compléter »
 affiché ; l'hébergeur reste à remplir). Pas de mentions propres à la réglementation française
 (ANJ, Joueurs Info Service, CNIL) : choix produit, le jeu vise l'international.
+
+**Écrans de fin de tour (`components/ResultBoard.jsx`) :** `BOARD-WIN.png` après un
+encaissement (montant gagné en or, multiplicateur, case), `BOARD-LOOSE.png` après une étoile
+ninja (case, mise perdue, message de relance), chacun avec une planche « Rejouer » qui relance
+directement un tour (même mise/difficulté, grisée si solde insuffisant). Apparaît 350 ms après
+la fin de l'animation de la poule (`roundAnimating` faux), se ferme par Rejouer, ✕, clic à
+côté, Échap ou le retour auto à idle. Le texte est posé dans la zone libre de chaque
+illustration (`LAYOUT`, en % de l'image) ; la zone de scène d'`App.jsx` est un *size
+container* et le panneau est dimensionné en `cqw/cqh` (texte en `cqi`), donc il tient sur
+tous les formats. Visibilité dérivée du numéro de tour (`settledRound`/`dismissedRound`),
+jamais d'un `setState` synchrone dans un effet (règle lint `react-hooks/set-state-in-effect`).
+
+**Musique d'ambiance (`src/audio/`) :** boucle japonaise synthétisée en direct (Web Audio,
+aucun fichier, aucun droit) — `score.js` (partition « Dojo du désert », gamme miyako-bushi en
+ré, 72 bpm, 16 mesures ≈ 53 s : koto seul → shakuhachi → taiko → tutti), `instruments.js`
+(koto, shakuhachi, taiko, bourdon, réverbération à convolution), `AmbientMusic.js`
+(ordonnanceur « look-ahead » 25 ms/150 ms, démarrage au premier geste joueur, pause onglet
+caché, choix mémorisé `chicken:music`, `subscribe/getSnapshot` pour React), `audioContext.js`
+(AudioContext partagé avec `useSound.js`). Bouton ♪ dans le bandeau (`hooks/useMusic.js`),
+barré quand coupé. Pour changer la mélodie : `score.js` uniquement.
+
+**Animation d'attente de la poule (`PixiRenderer._animateIdle`) :** en pose `idle` (départ et
+entre deux cases), respiration (étirement vertical 2,5 % depuis les pattes, 0,9 Hz) et
+balancement (±2,5°, 0,35 Hz) — constantes `IDLE_*`. Pas de sautillement (retiré à la demande).
+Remise à zéro dès qu'une autre pose prend la main ; désactivée si `prefers-reduced-motion`.
 
 **Devises crypto :** non gérées volontairement (BTC/ETH s'affichent avec 2 décimales,
 USDT/mBTC retombent sur la devise du pays ; limites de mise 1–200 quelle que soit la devise).

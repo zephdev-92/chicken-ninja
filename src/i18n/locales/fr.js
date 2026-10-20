@@ -10,6 +10,8 @@ export default {
     copy: 'copier',
     language: 'Langue',
     currency: 'Devise',
+    musicOn: 'Activer la musique',
+    musicOff: 'Couper la musique',
   },
 
   difficulty: {
@@ -46,6 +48,17 @@ export default {
     stepCleared: 'Case {step} franchie — {multiplier:multiplier} ({difficulty})',
     ninjaStar: 'Étoile ninja à la case {step} — perdu {amount:moneyShort}.',
     cashedAt: 'Encaissé à la case {step} — gain {amount:money}.',
+  },
+
+  // End-of-round boards (ResultBoard.jsx)
+  result: {
+    winTitle: 'Gagné !',
+    winAmount: '+{amount:money}',
+    winDetail: 'Encaissé à {multiplier:multiplier} · case {step}',
+    lossTitle: 'Étoile ninja !',
+    lossDetail: 'Touché à la case {step} — {amount:moneyShort} perdus.',
+    lossRetry: 'Prêt pour un nouveau tour ?',
+    playAgain: 'Rejouer — {amount:moneyShort}',
   },
 
   error: {

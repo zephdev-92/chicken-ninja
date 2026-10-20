@@ -10,6 +10,8 @@ export default {
     copy: 'kopieren',
     language: 'Sprache',
     currency: 'Währung',
+    musicOn: 'Musik einschalten',
+    musicOff: 'Musik ausschalten',
   },
 
   difficulty: {
@@ -46,6 +48,17 @@ export default {
     stepCleared: 'Feld {step} geschafft — {multiplier:multiplier} ({difficulty})',
     ninjaStar: 'Ninjastern auf Feld {step} — {amount:moneyShort} verloren.',
     cashedAt: 'Auf Feld {step} ausgezahlt — {amount:money} gewonnen.',
+  },
+
+  // End-of-round boards (ResultBoard.jsx)
+  result: {
+    winTitle: 'Gewonnen!',
+    winAmount: '+{amount:money}',
+    winDetail: 'Ausgezahlt bei {multiplier:multiplier} · Feld {step}',
+    lossTitle: 'Ninjastern!',
+    lossDetail: 'Erwischt auf Feld {step} — {amount:moneyShort} verloren.',
+    lossRetry: 'Bereit für eine neue Runde?',
+    playAgain: 'Nochmal — {amount:moneyShort}',
   },
 
   error: {

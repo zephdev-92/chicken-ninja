@@ -10,6 +10,8 @@ export default {
     copy: 'copiar',
     language: 'Idioma',
     currency: 'Moeda',
+    musicOn: 'Ligar a música',
+    musicOff: 'Desligar a música',
   },
 
   difficulty: {
@@ -46,6 +48,17 @@ export default {
     stepCleared: 'Casa {step} superada — {multiplier:multiplier} ({difficulty})',
     ninjaStar: 'Estrela ninja na casa {step} — perdeu {amount:moneyShort}.',
     cashedAt: 'Levantado na casa {step} — ganhou {amount:money}.',
+  },
+
+  // End-of-round boards (ResultBoard.jsx)
+  result: {
+    winTitle: 'Ganhou!',
+    winAmount: '+{amount:money}',
+    winDetail: 'Levantado a {multiplier:multiplier} · casa {step}',
+    lossTitle: 'Estrela ninja!',
+    lossDetail: 'Atingido na casa {step} — perdeu {amount:moneyShort}.',
+    lossRetry: 'Pronto para outra ronda?',
+    playAgain: 'Jogar de novo — {amount:moneyShort}',
   },
 
   error: {

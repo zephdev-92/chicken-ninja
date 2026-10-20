@@ -144,7 +144,7 @@ function main() {
     console.log('✅ Every spot-check fell inside its 95% confidence interval around the theoretical RTP.');
   } else {
     console.log('❌ At least one spot-check missed its CI — re-run with --deep before trusting a FAIL on a thin sample,');
-    console.log('   then check src/shared/gameConfig.js math and server/index.js\'s resolveStep() if it persists.');
+    console.log('   then check src/shared/gameConfig.js math and server/core/roundEngine.js\'s resolveStep() if it persists.');
   }
   process.exit(allPass ? 0 : 1);
 }

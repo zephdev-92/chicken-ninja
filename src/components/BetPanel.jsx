@@ -74,7 +74,7 @@ export function BetControls({ bet, setBet, betError, minBet, maxBet, balance, is
   const betLabel = t('game.bet');
   // The label sits in the fixed light-wood third of the counter artwork: longer
   // words ("Einsatz", "Puntata") get a smaller size instead of spilling out of it.
-  const labelSize = (compact ? 13 : 17) * Math.min(1, 6 / Math.max(6, betLabel.length));
+  const labelSize = (compact ? 13 : 17) * Math.min(1, 5.5 / Math.max(5.5, betLabel.length));
   const symbol = <span style={{ ...inkText, fontSize: compact ? '15px' : '20px', flexShrink: 0 }}>{fmt.currencySymbol}</span>;
   return (
     <div style={{ display: 'grid', gap: '4px', width, maxWidth: '100%', minWidth: 0 }}>

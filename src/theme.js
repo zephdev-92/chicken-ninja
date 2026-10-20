@@ -17,14 +17,7 @@ export const theme = {
 
   accent: '#c0392b',
   accentGold: '#f0a828',
-  accentDeep: '#8e2a1f',   // bottom "3D" edge under skinned buttons
-  navy: '#052a75',         // text on blue/green skins
-  // Flat fill of each src/assets/ui/bouton-background-*.png, under its transparent corners
-  skinBeige: '#f2e4c4',
-  skinBleu: '#67ccd1',
-  skinJaune: '#fdcb50',
-  skinVert: '#b1d952',
-  skinLevel: '#fadebb',
+  accentDeep: '#8e2a1f',   // section titles in the info panel
   info: '#3a6ea8',
   // Wood UI skin (src/components/woodSkin.js)
   woodText: '#fbeed2',            // cream lettering on dark/red wood

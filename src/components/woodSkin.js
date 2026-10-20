@@ -17,11 +17,13 @@ import cartoucheWhite from '../assets/ui/CARTOUCHE-WHITE.png';
 import cartoucheWood from '../assets/ui/CARTOUCHE-WOOD.png';
 import edge from '../assets/ui/EDGE-TOP-BOTTOM.png';
 import headerBg from '../assets/ui/BG-HEADER.jpg';
+import boardWin from '../assets/ui/BOARD-WIN.png';
+import boardLoss from '../assets/ui/BOARD-LOOSE.png';
 
 export const WOOD = {
   board, levelOn, levelOff, checkOn, checkOff, miseBtn, miseCounter,
   upOn, upOff, downOn, downOff, playActive, playClick, playOff,
-  cartoucheWhite, cartoucheWood, edge, headerBg,
+  cartoucheWhite, cartoucheWood, edge, headerBg, boardWin, boardLoss,
 };
 
 // Nine-slice framing via CSS border-image: corners (rivets, metal brackets) keep

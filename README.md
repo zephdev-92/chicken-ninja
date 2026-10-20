@@ -3,7 +3,8 @@
 Jeu casino type **Chicken Road**, thème ninja : la poule avance case par case sur une route
 du désert, esquive des étoiles ninja, et peut encaisser à tout moment. **Provably Fair**
 (HMAC-SHA256), rendu **PixiJS v8** avec sprites illustrés, interface en bois sculpté,
-**plein écran responsive** (téléphone, paysage, portable, grand écran) et **multilingue**.
+**plein écran responsive** (téléphone, paysage, portable, grand écran), **multilingue**, avec
+écrans de gain/perte et musique d'ambiance japonaise synthétisée (bouton ♪ pour la couper).
 
 Base architecturale reprise de [`CRASH-GAME`](../../CRASH-GAME), adaptée à une mécanique
 par étapes discrètes (solo contre la maison, pas de round partagé).
@@ -43,8 +44,9 @@ Tests : `npm run lint`, `npm run rtp-sim` (ou `-- --deep`), `npm run concurrency
 5. Une déconnexion avant la 1ʳᵉ case rembourse la mise ; après, la mise est perdue (pas
    d'encaissement automatique).
 6. Chaque tour est vérifiable via **Provably Fair** (menu ☰).
-7. Après un crash ou un encaissement, la table revient seule à l'écran de mise au bout de
-   6 secondes si vous ne relancez pas de tour.
+7. À la fin du tour, un écran de gain (montant gagné) ou de perte (message de relance)
+   s'affiche, avec un bouton « Rejouer » ; la table revient seule à l'écran de mise au bout
+   de 6 secondes si vous ne relancez pas de tour.
 
 Les règles complètes, le RTP, l'équité, le jeu responsable, les mentions légales et la
 politique de données sont dans le panneau **Information** (bouton « i » sur la scène, ou

@@ -2,14 +2,7 @@
 // AudioContext créé au premier appel (après interaction utilisateur, requis par les navigateurs).
 import crashSfxUrl   from '../assets/sounds/crash.mp3';
 import cashoutSfxUrl from '../assets/sounds/cashout.mp3';
-
-let _ctx = null;
-
-function getCtx() {
-  if (!_ctx) _ctx = new (window.AudioContext || window.webkitAudioContext)();
-  if (_ctx.state === 'suspended') _ctx.resume();
-  return _ctx;
-}
+import { getAudioContext as getCtx } from '../audio/audioContext.js';
 
 // ── Fichiers audio réels ─────────────────────────────────────────────────────
 // fetch + decodeAudioData une seule fois par URL (résultat mis en cache), puis

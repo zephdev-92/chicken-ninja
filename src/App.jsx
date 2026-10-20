@@ -7,6 +7,7 @@ import { BetControls, ActionButtons } from './components/BetPanel';
 import { WOOD, frame, woodText } from './components/woodSkin';
 import Drawer from './components/Drawer';
 import InfoPanel from './components/InfoPanel';
+import ResultBoard from './components/ResultBoard';
 import { useChickenGame } from './hooks/useChickenGame';
 import { useSound } from './hooks/useSound';
 import { useMediaQuery } from './hooks/useMediaQuery';
@@ -57,6 +58,11 @@ export default function App() {
   const rowTray    = wide || landscapeShort; // board | action planks side by side
   const boardRow   = xwide || shortWide || landscapeShort; // levels | bet side by side inside the board
   const prevStatus = useRef(status);
+  // Latest finished round, only when it matches the current end state (history[0] is
+  // the round that just busted/cashed out — see socketClient.js addHistory calls).
+  const lastResult = history[0] && (
+    (status === 'cashed' && history[0].result === 'cashout') || (status === 'busted' && history[0].result === 'busted')
+  ) ? history[0] : null;
 
   // Cashout has no multi-stage animation ahead of it (the bounce starts the same
   // frame the round ends), so it's still safe to trigger straight off the React
@@ -101,7 +107,8 @@ export default function App() {
         {/* The road is the game — it grows to fill whatever space the control tray below
             doesn't need, instead of sitting in a fixed compact band with a dead gap
             beneath it (PixiRenderer is height-agnostic: track stays bottom-anchored). */}
-        <div style={{ flex: '1 1 auto', minHeight: 0, position: 'relative' }}>
+        {/* Size container: ResultBoard sizes itself in cqw/cqh to fit the scene. */}
+        <div style={{ flex: '1 1 auto', minHeight: 0, position: 'relative', containerType: 'size' }}>
           <GameCanvas
             status={status} step={step_} lanes={lanes} lastOutcome={lastOutcome}
             difficulty={status === 'active' ? difficulty : selectedDifficulty}
@@ -112,6 +119,14 @@ export default function App() {
               so the canvas size and PixiRenderer layout stay untouched. */}
           <div style={{ ...sceneEdge, height: compact ? '12px' : '23px', top: 0 }} />
           <div style={{ ...sceneEdge, height: compact ? '12px' : '23px', bottom: 0 }} />
+          <ResultBoard
+            status={status}
+            roundAnimating={roundAnimating}
+            result={lastResult}
+            bet={bet}
+            canReplay={isIdleLike && !roundAnimating && balance >= bet && bet >= minBet}
+            onReplay={startRound}
+          />
           {/* Discreet but always reachable entry to the mandatory information
               (rules, RTP, responsible gaming, legal notice) — bottom-right of the
               scene, clear of the chicken which always sits on the left side. */}
